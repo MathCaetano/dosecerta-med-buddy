@@ -137,7 +137,27 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      calcular_adesao_usuario: {
+        Args: { _data_fim?: string; _data_inicio?: string; _usuario_id: string }
+        Returns: {
+          doses_esquecidas: number
+          doses_pendentes: number
+          doses_tomadas: number
+          percentual_adesao: number
+          total_doses: number
+        }[]
+      }
+      marcar_doses_esquecidas: { Args: never; Returns: undefined }
+      resumo_semanal_usuario: {
+        Args: { _usuario_id: string }
+        Returns: {
+          adesao: number
+          esquecidas: number
+          semana: string
+          tomadas: number
+          total: number
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never
