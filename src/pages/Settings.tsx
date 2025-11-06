@@ -2,7 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, LogOut, User } from "lucide-react";
+import { LogOut, User } from "lucide-react";
 import { toast } from "sonner";
 
 const Settings = () => {
@@ -20,12 +20,6 @@ const Settings = () => {
 
   return (
     <div className="min-h-screen bg-background p-4">
-      <header className="max-w-2xl mx-auto mb-6">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/dashboard")}>
-          <ArrowLeft className="h-6 w-6" />
-        </Button>
-      </header>
-
       <main className="max-w-2xl mx-auto space-y-6">
         <Card>
           <CardHeader>
