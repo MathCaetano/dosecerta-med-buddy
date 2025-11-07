@@ -33,25 +33,44 @@ const AddMedication = () => {
     setIsLoading(true);
 
     try {
-      // Criar medicamento
-      const { data: medicamento, error: medError } = await supabase
-        .from("medicamentos")
-        .insert({
-          nome: formData.nome,
-          dosagem: formData.dosagem,
-          observacoes: formData.observacoes,
-          usuario_id: (await supabase.auth.getUser()).data.user?.id,
-        })
-        .select()
-        .single();
+      const userId = (await supabase.auth.getUser()).data.user?.id;
 
-      if (medError) throw medError;
+      // Verificar se já existe um medicamento com o mesmo nome para este usuário
+      const { data: existingMed } = await supabase
+        .from("medicamentos")
+        .select("id")
+        .eq("usuario_id", userId)
+        .eq("nome", formData.nome.trim())
+        .maybeSingle();
+
+      let medicamentoId: string;
+
+      if (existingMed) {
+        // Se já existe, usar o medicamento existente
+        medicamentoId = existingMed.id;
+        toast.info("Adicionando novo horário ao medicamento existente");
+      } else {
+        // Criar novo medicamento
+        const { data: medicamento, error: medError } = await supabase
+          .from("medicamentos")
+          .insert({
+            nome: formData.nome.trim(),
+            dosagem: formData.dosagem.trim(),
+            observacoes: formData.observacoes.trim() || null,
+            usuario_id: userId,
+          })
+          .select()
+          .single();
+
+        if (medError) throw medError;
+        medicamentoId = medicamento.id;
+      }
 
       // Criar lembrete
       const { error: lemError } = await supabase
         .from("lembretes")
         .insert({
-          medicamento_id: medicamento.id,
+          medicamento_id: medicamentoId,
           horario: formData.horario,
           periodo: formData.periodo,
           repeticao: formData.repeticao,
@@ -60,10 +79,10 @@ const AddMedication = () => {
 
       if (lemError) throw lemError;
 
-      toast.success("Medicamento adicionado com sucesso!");
-      navigate("/dashboard");
+      toast.success("Lembrete adicionado com sucesso!");
+      navigate("/medicamentos");
     } catch (error: any) {
-      toast.error("Erro ao adicionar medicamento: " + error.message);
+      toast.error("Erro ao adicionar: " + error.message);
     } finally {
       setIsLoading(false);
     }
@@ -72,7 +91,7 @@ const AddMedication = () => {
   return (
     <div className="min-h-screen bg-background p-4">
       <header className="max-w-2xl mx-auto mb-6">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/dashboard")}>
+        <Button variant="ghost" size="icon" onClick={() => navigate("/medicamentos")}>
           <ArrowLeft className="h-6 w-6" />
         </Button>
       </header>
@@ -197,7 +216,7 @@ const AddMedication = () => {
                   type="button"
                   variant="outline"
                   className="flex-1 h-12 text-base"
-                  onClick={() => navigate("/dashboard")}
+                  onClick={() => navigate("/medicamentos")}
                   disabled={isLoading}
                 >
                   Cancelar
