@@ -7,8 +7,14 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Plus, X } from "lucide-react";
 import { toast } from "sonner";
+
+interface Horario {
+  horario: string;
+  periodo: string;
+  repeticao: string;
+}
 
 const AddMedication = () => {
   const navigate = useNavigate();
@@ -17,56 +23,111 @@ const AddMedication = () => {
     nome: "",
     dosagem: "",
     observacoes: "",
-    horario: "",
-    periodo: "manha",
-    repeticao: "diariamente",
   });
+  const [horarios, setHorarios] = useState<Horario[]>([
+    { horario: "", periodo: "manha", repeticao: "diariamente" }
+  ]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.nome || !formData.dosagem || !formData.horario) {
-      toast.error("Preencha todos os campos obrigatórios");
+    if (!formData.nome || !formData.dosagem) {
+      toast.error("Preencha nome e dosagem do medicamento");
+      return;
+    }
+
+    const horariosValidos = horarios.filter(h => h.horario.trim() !== "");
+    if (horariosValidos.length === 0) {
+      toast.error("Adicione pelo menos um horário");
       return;
     }
 
     setIsLoading(true);
 
     try {
-      // Criar medicamento
-      const { data: medicamento, error: medError } = await supabase
+      const userId = (await supabase.auth.getUser()).data.user?.id;
+
+      // Verificar se já existe medicamento com mesmo nome
+      const { data: medicamentoExistente } = await supabase
         .from("medicamentos")
-        .insert({
-          nome: formData.nome,
-          dosagem: formData.dosagem,
-          observacoes: formData.observacoes,
-          usuario_id: (await supabase.auth.getUser()).data.user?.id,
-        })
-        .select()
-        .single();
+        .select("id")
+        .eq("usuario_id", userId)
+        .eq("nome", formData.nome)
+        .maybeSingle();
 
-      if (medError) throw medError;
+      let medicamentoId: string;
 
-      // Criar lembrete
+      if (medicamentoExistente) {
+        // Atualizar medicamento existente
+        const { error: updateError } = await supabase
+          .from("medicamentos")
+          .update({
+            dosagem: formData.dosagem,
+            observacoes: formData.observacoes,
+          })
+          .eq("id", medicamentoExistente.id);
+
+        if (updateError) throw updateError;
+        medicamentoId = medicamentoExistente.id;
+      } else {
+        // Criar novo medicamento
+        const { data: novoMedicamento, error: medError } = await supabase
+          .from("medicamentos")
+          .insert({
+            nome: formData.nome,
+            dosagem: formData.dosagem,
+            observacoes: formData.observacoes,
+            usuario_id: userId,
+          })
+          .select()
+          .single();
+
+        if (medError) throw medError;
+        medicamentoId = novoMedicamento.id;
+      }
+
+      // Criar lembretes para cada horário
+      const lembretesData = horariosValidos.map(h => ({
+        medicamento_id: medicamentoId,
+        horario: h.horario,
+        periodo: h.periodo,
+        repeticao: h.repeticao,
+        ativo: true,
+      }));
+
       const { error: lemError } = await supabase
         .from("lembretes")
-        .insert({
-          medicamento_id: medicamento.id,
-          horario: formData.horario,
-          periodo: formData.periodo,
-          repeticao: formData.repeticao,
-          ativo: true,
-        });
+        .insert(lembretesData);
 
       if (lemError) throw lemError;
 
-      toast.success("Medicamento adicionado com sucesso!");
-      navigate("/dashboard");
+      toast.success(
+        medicamentoExistente 
+          ? "Horários adicionados com sucesso!" 
+          : "Medicamento adicionado com sucesso!"
+      );
+      navigate("/medicamentos");
     } catch (error: any) {
       toast.error("Erro ao adicionar medicamento: " + error.message);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const addHorario = () => {
+    setHorarios([...horarios, { horario: "", periodo: "manha", repeticao: "diariamente" }]);
+  };
+
+  const removeHorario = (index: number) => {
+    if (horarios.length > 1) {
+      setHorarios(horarios.filter((_, i) => i !== index));
+    }
+  };
+
+  const updateHorario = (index: number, field: keyof Horario, value: string) => {
+    const novosHorarios = [...horarios];
+    novosHorarios[index] = { ...novosHorarios[index], [field]: value };
+    setHorarios(novosHorarios);
   };
 
   return (
@@ -132,63 +193,97 @@ const AddMedication = () => {
               </div>
 
               <div className="border-t pt-6">
-                <h3 className="text-lg font-semibold mb-4">Configurar Lembrete</h3>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold">Configurar Horários</h3>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={addHorario}
+                    disabled={isLoading}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Adicionar horário
+                  </Button>
+                </div>
 
                 <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="horario" className="text-base">
-                      Horário *
-                    </Label>
-                    <Input
-                      id="horario"
-                      type="time"
-                      value={formData.horario}
-                      onChange={(e) => setFormData({ ...formData, horario: e.target.value })}
-                      className="text-base h-12"
-                      disabled={isLoading}
-                    />
-                  </div>
+                  {horarios.map((horario, index) => (
+                    <div key={index} className="p-4 border rounded-lg space-y-4 bg-muted/20">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-base font-medium">Horário {index + 1}</Label>
+                        {horarios.length > 1 && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => removeHorario(index)}
+                            disabled={isLoading}
+                            className="h-8 w-8"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="periodo" className="text-base">
-                      Período do dia
-                    </Label>
-                    <Select
-                      value={formData.periodo}
-                      onValueChange={(value) => setFormData({ ...formData, periodo: value })}
-                      disabled={isLoading}
-                    >
-                      <SelectTrigger className="text-base h-12">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="manha">Manhã</SelectItem>
-                        <SelectItem value="tarde">Tarde</SelectItem>
-                        <SelectItem value="noite">Noite</SelectItem>
-                        <SelectItem value="madrugada">Madrugada</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                      <div className="space-y-2">
+                        <Label htmlFor={`horario-${index}`} className="text-base">
+                          Horário *
+                        </Label>
+                        <Input
+                          id={`horario-${index}`}
+                          type="time"
+                          value={horario.horario}
+                          onChange={(e) => updateHorario(index, "horario", e.target.value)}
+                          className="text-base h-12"
+                          disabled={isLoading}
+                        />
+                      </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="repeticao" className="text-base">
-                      Frequência
-                    </Label>
-                    <Select
-                      value={formData.repeticao}
-                      onValueChange={(value) => setFormData({ ...formData, repeticao: value })}
-                      disabled={isLoading}
-                    >
-                      <SelectTrigger className="text-base h-12">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="diariamente">Diariamente</SelectItem>
-                        <SelectItem value="dias_alternados">Dias alternados</SelectItem>
-                        <SelectItem value="semanalmente">Semanalmente</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor={`periodo-${index}`} className="text-base">
+                            Período
+                          </Label>
+                          <Select
+                            value={horario.periodo}
+                            onValueChange={(value) => updateHorario(index, "periodo", value)}
+                            disabled={isLoading}
+                          >
+                            <SelectTrigger className="text-base h-12">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="manha">Manhã</SelectItem>
+                              <SelectItem value="tarde">Tarde</SelectItem>
+                              <SelectItem value="noite">Noite</SelectItem>
+                              <SelectItem value="madrugada">Madrugada</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor={`repeticao-${index}`} className="text-base">
+                            Frequência
+                          </Label>
+                          <Select
+                            value={horario.repeticao}
+                            onValueChange={(value) => updateHorario(index, "repeticao", value)}
+                            disabled={isLoading}
+                          >
+                            <SelectTrigger className="text-base h-12">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="diariamente">Diariamente</SelectItem>
+                              <SelectItem value="dias_alternados">Dias alternados</SelectItem>
+                              <SelectItem value="semanalmente">Semanalmente</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
 
@@ -197,7 +292,7 @@ const AddMedication = () => {
                   type="button"
                   variant="outline"
                   className="flex-1 h-12 text-base"
-                  onClick={() => navigate("/dashboard")}
+                  onClick={() => navigate("/medicamentos")}
                   disabled={isLoading}
                 >
                   Cancelar
