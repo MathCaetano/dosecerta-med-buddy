@@ -28,20 +28,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
-interface Lembrete {
-  id: string;
-  horario: string;
-  periodo: string;
-  repeticao: string;
-  ativo: boolean;
-}
-
 interface Medicamento {
   id: string;
   nome: string;
   dosagem: string;
   observacoes: string | null;
-  lembretes?: Lembrete[];
 }
 
 const Medicamentos = () => {
@@ -86,16 +77,7 @@ const Medicamentos = () => {
     
     const { data: medsData } = await supabase
       .from("medicamentos")
-      .select(`
-        *,
-        lembretes (
-          id,
-          horario,
-          periodo,
-          repeticao,
-          ativo
-        )
-      `)
+      .select("*")
       .order("created_at", { ascending: false });
     
     if (medsData) setMedicamentos(medsData);
@@ -198,49 +180,33 @@ const Medicamentos = () => {
               medicamentos.map((med) => (
                 <div
                   key={med.id}
-                  className="p-4 border rounded-lg bg-card hover:bg-accent/50 transition-colors"
+                  className="flex items-center justify-between p-4 border rounded-lg bg-card hover:bg-accent/50 transition-colors"
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex-1">
-                      <p className="font-medium text-base">{med.nome}</p>
-                      <p className="text-sm text-muted-foreground">{med.dosagem}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={(e) => handleEdit(med, e)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive hover:text-destructive"
-                        onClick={(e) => handleDelete(med, e)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+                  <div className="flex-1">
+                    <p className="font-medium text-base">{med.nome}</p>
+                    <p className="text-sm text-muted-foreground">{med.dosagem}</p>
+                    {med.observacoes && (
+                      <p className="text-sm text-muted-foreground mt-1">{med.observacoes}</p>
+                    )}
                   </div>
-                  
-                  {med.lembretes && med.lembretes.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mt-3">
-                      {med.lembretes.map((lembrete) => (
-                        <span
-                          key={lembrete.id}
-                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary border border-primary/20"
-                        >
-                          🕐 {lembrete.horario.substring(0, 5)} • {lembrete.periodo}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  
-                  {med.observacoes && (
-                    <p className="text-sm text-muted-foreground mt-3 pt-3 border-t">{med.observacoes}</p>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={(e) => handleEdit(med, e)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-destructive hover:text-destructive"
+                      onClick={(e) => handleDelete(med, e)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
               ))
             )}
