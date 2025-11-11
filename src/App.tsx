@@ -10,6 +10,7 @@ import Medicamentos from "./pages/Medicamentos";
 import AddMedication from "./pages/AddMedication";
 import History from "./pages/History";
 import Settings from "./pages/Settings";
+import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -27,6 +28,7 @@ const App = () => (
           <Route path="/medicamentos" element={<Layout><Medicamentos /></Layout>} />
           <Route path="/add-medication" element={<Layout><AddMedication /></Layout>} />
           <Route path="/history" element={<Layout><History /></Layout>} />
+          <Route path="/profile" element={<Layout><Profile /></Layout>} />
           <Route path="/settings" element={<Layout><Settings /></Layout>} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
