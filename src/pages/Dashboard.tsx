@@ -30,6 +30,13 @@ interface HistoricoDose {
   status: "tomado" | "esquecido" | "pendente";
 }
 
+const getGreeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Bom dia";
+  if (hour < 18) return "Boa tarde";
+  return "Boa noite";
+};
+
 const Dashboard = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState<User | null>(null);
@@ -37,6 +44,7 @@ const Dashboard = () => {
   const [medicamentos, setMedicamentos] = useState<Medicamento[]>([]);
   const [lembretes, setLembretes] = useState<Lembrete[]>([]);
   const [historico, setHistorico] = useState<HistoricoDose[]>([]);
+  const [userName, setUserName] = useState<string>("");
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -60,6 +68,17 @@ const Dashboard = () => {
 
   const loadData = async () => {
     setLoading(true);
+    
+    // Carregar nome do usuário
+    if (user?.id) {
+      const { data: profileData } = await supabase
+        .from("profiles")
+        .select("nome")
+        .eq("id", user.id)
+        .single();
+      
+      if (profileData) setUserName(profileData.nome);
+    }
     
     // Carregar medicamentos
     const { data: medsData } = await supabase
@@ -183,6 +202,17 @@ const Dashboard = () => {
   return (
     <div className="min-h-screen bg-background p-4 pb-24">
       <main className="max-w-4xl mx-auto space-y-6">
+        {userName && (
+          <div className="flex items-center gap-3 px-1">
+            <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-primary-foreground font-bold text-base">
+              {userName.charAt(0).toUpperCase()}
+            </div>
+            <span className="text-base font-semibold text-foreground">
+              {getGreeting()}, <strong>{userName}</strong> 👋
+            </span>
+          </div>
+        )}
+        
         <div className="bg-card border rounded-lg p-4">
           <p className="text-base text-muted-foreground">
             📅 Hoje: <strong>{total}</strong> lembretes totais • ✅ <strong>{tomados}</strong> tomados • ⏰ <strong>{pendentes}</strong> pendentes
