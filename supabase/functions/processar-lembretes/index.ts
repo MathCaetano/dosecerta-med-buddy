@@ -72,7 +72,8 @@ Deno.serve(async (req) => {
 
     let marcadasEsquecidas = 0
     for (const dose of dosesPendentes || []) {
-      const horarioLembrete = dose.lembretes.horario
+      const lembrete = dose.lembretes as any
+      const horarioLembrete = lembrete.horario
       const [hora, minuto] = horarioLembrete.split(':').map(Number)
       const horarioLimite = new Date(agora)
       horarioLimite.setHours(hora, minuto + 30, 0, 0)
@@ -105,7 +106,7 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error('Erro ao processar lembretes:', error)
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: error instanceof Error ? error.message : 'Erro desconhecido' }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
     )
   }
