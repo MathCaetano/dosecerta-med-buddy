@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle, Clock, AlertCircle } from "lucide-react";
-import { toast } from "sonner";
+import { useFeedback } from "@/contexts/FeedbackContext";
+import { getDelayWarning } from "@/utils/gamification";
 
 interface Medicamento {
   id: string;
@@ -32,6 +33,7 @@ interface HistoricoDose {
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const feedback = useFeedback();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [medicamentos, setMedicamentos] = useState<Medicamento[]>([]);
@@ -92,7 +94,9 @@ const Dashboard = () => {
   const marcarDose = async (lembreteId: string, status: "tomado" | "esquecido") => {
     const today = new Date().toISOString().split("T")[0];
     const now = new Date().toTimeString().split(" ")[0];
-
+    const lembrete = lembretes.find(l => l.id === lembreteId);
+    const horarioLembrete = lembrete?.horario || "";
+    
     // Verificar se já existe registro para hoje
     const existing = historico.find(h => h.lembrete_id === lembreteId && h.data === today);
 
@@ -103,9 +107,22 @@ const Dashboard = () => {
         .eq("id", existing.id);
 
       if (error) {
-        toast.error("Erro ao atualizar dose");
+        feedback.error("Erro ao atualizar dose");
       } else {
-        toast.success(status === "tomado" ? "Dose marcada como tomada!" : "Dose marcada como esquecida");
+        if (status === "tomado") {
+          const [horaLembrete, minutoLembrete] = horarioLembrete.split(":").map(Number);
+          const [horaReal, minutoReal] = now.split(":").map(Number);
+          const delayMinutes = (horaReal * 60 + minutoReal) - (horaLembrete * 60 + minutoLembrete);
+          const warningMsg = getDelayWarning(Math.abs(delayMinutes));
+          
+          feedback.success(
+            delayMinutes > 30 
+              ? `Dose marcada! ${warningMsg || ""}` 
+              : "Dose marcada no horário! Continue assim! ✨"
+          );
+        } else {
+          feedback.info("Dose marcada como esquecida. Próxima tente não esquecer!");
+        }
         loadData();
       }
     } else {
@@ -119,9 +136,13 @@ const Dashboard = () => {
         });
 
       if (error) {
-        toast.error("Erro ao registrar dose");
+        feedback.error("Erro ao registrar dose");
       } else {
-        toast.success(status === "tomado" ? "Dose marcada como tomada!" : "Dose marcada como esquecida");
+        if (status === "tomado") {
+          feedback.success("Dose marcada! Você está no caminho certo! 💪");
+        } else {
+          feedback.warning("Dose marcada como esquecida");
+        }
         loadData();
       }
     }
