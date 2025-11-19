@@ -7,8 +7,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, Plus, X } from "lucide-react";
+import { ArrowLeft, Plus, X, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+import { useNotifications } from "@/hooks/useNotifications";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface Horario {
   horario: string;
@@ -18,6 +20,7 @@ interface Horario {
 
 const AddMedication = () => {
   const navigate = useNavigate();
+  const notifications = useNotifications();
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
     nome: "",
@@ -27,6 +30,7 @@ const AddMedication = () => {
   const [horarios, setHorarios] = useState<Horario[]>([
     { horario: "", periodo: "manha", repeticao: "diariamente" }
   ]);
+  const [horariosConflitantes, setHorariosConflitantes] = useState<string[]>([]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,6 +43,13 @@ const AddMedication = () => {
     const horariosValidos = horarios.filter(h => h.horario.trim() !== "");
     if (horariosValidos.length === 0) {
       toast.error("Adicione pelo menos um horário");
+      return;
+    }
+
+    // Validar horários duplicados no formulário
+    const horariosSet = new Set(horariosValidos.map(h => h.horario));
+    if (horariosSet.size !== horariosValidos.length) {
+      toast.error("Você adicionou horários duplicados. Remova os duplicados.");
       return;
     }
 
@@ -58,6 +69,22 @@ const AddMedication = () => {
       let medicamentoId: string;
 
       if (medicamentoExistente) {
+        // Verificar se horários já existem para evitar duplicação
+        const { data: lembretesExistentes } = await supabase
+          .from("lembretes")
+          .select("horario")
+          .eq("medicamento_id", medicamentoExistente.id);
+
+        const horariosJaExistem = horariosValidos.filter(h => 
+          lembretesExistentes?.some(l => l.horario === h.horario)
+        );
+
+        if (horariosJaExistem.length > 0) {
+          const horarios = horariosJaExistem.map(h => h.horario).join(", ");
+          toast.error(`Os seguintes horários já existem para este medicamento: ${horarios}`);
+          return;
+        }
+
         // Atualizar medicamento existente
         const { error: updateError } = await supabase
           .from("medicamentos")
@@ -95,17 +122,43 @@ const AddMedication = () => {
         ativo: true,
       }));
 
-      const { error: lemError } = await supabase
+      const { data: lembretesInseridos, error: lemError } = await supabase
         .from("lembretes")
-        .insert(lembretesData);
+        .insert(lembretesData)
+        .select();
 
       if (lemError) throw lemError;
 
-      toast.success(
-        medicamentoExistente 
-          ? "Horários adicionados com sucesso!" 
-          : "Medicamento adicionado com sucesso!"
-      );
+      // Agendar notificações se já tem permissão
+      if (notifications.isInitialized && lembretesInseridos) {
+        let scheduled = 0;
+        for (const lembrete of lembretesInseridos) {
+          const success = await notifications.scheduleNotification(
+            lembrete.id,
+            formData.nome,
+            formData.dosagem,
+            lembrete.horario
+          );
+          if (success) scheduled++;
+        }
+
+        toast.success(
+          medicamentoExistente 
+            ? `Horários adicionados! ${scheduled} notificações agendadas.`
+            : `Medicamento criado! ${scheduled} notificações agendadas.`
+        );
+      } else {
+        toast.success(
+          medicamentoExistente 
+            ? "Horários adicionados com sucesso!" 
+            : "Medicamento adicionado com sucesso!"
+        );
+
+        if (notifications.permission !== "granted") {
+          toast.info("Ative as notificações no Dashboard para receber lembretes!");
+        }
+      }
+
       navigate("/medicamentos");
     } catch (error: any) {
       toast.error("Erro ao adicionar medicamento: " + error.message);
@@ -128,6 +181,23 @@ const AddMedication = () => {
     const novosHorarios = [...horarios];
     novosHorarios[index] = { ...novosHorarios[index], [field]: value };
     setHorarios(novosHorarios);
+
+    // Verificar conflitos de horários próximos
+    if (field === "horario" && value) {
+      const conflitos: string[] = [];
+      novosHorarios.forEach((h, i) => {
+        if (i !== index && h.horario && value) {
+          const [h1, m1] = h.horario.split(":").map(Number);
+          const [h2, m2] = value.split(":").map(Number);
+          const diff = Math.abs((h1 * 60 + m1) - (h2 * 60 + m2));
+          
+          if (diff < 15) { // Menos de 15 minutos
+            conflitos.push(h.horario);
+          }
+        }
+      });
+      setHorariosConflitantes(conflitos);
+    }
   };
 
   return (
@@ -148,6 +218,17 @@ const AddMedication = () => {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Aviso de horários conflitantes */}
+              {horariosConflitantes.length > 0 && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    <strong>Atenção:</strong> Você tem horários muito próximos ({horariosConflitantes.join(", ")}). 
+                    Considere espaçar mais os horários para evitar confusão.
+                  </AlertDescription>
+                </Alert>
+              )}
+
               <div className="space-y-2">
                 <Label htmlFor="nome" className="text-base">
                   Nome do medicamento *
