@@ -131,3 +131,44 @@ All colors MUST be HSL.
     @apply text-xl;
   }
 }
+
+@layer components {
+  /* Micro animações para botões */
+  .btn-feedback {
+    @apply transition-all duration-200 active:scale-95;
+  }
+  
+  .btn-feedback:hover {
+    @apply brightness-110;
+  }
+  
+  /* Efeito ripple em botões */
+  .btn-ripple {
+    @apply relative overflow-hidden;
+  }
+  
+  .btn-ripple::after {
+    content: '';
+    @apply absolute inset-0 opacity-0 bg-white/20 rounded-md;
+    animation: ripple 0.6s ease-out;
+  }
+  
+  .btn-ripple:active::after {
+    @apply opacity-100;
+  }
+  
+  /* Skeleton loading */
+  .skeleton-pulse {
+    @apply animate-pulse bg-muted;
+  }
+  
+  /* Success check animation */
+  .check-success {
+    @apply animate-pulse-success;
+  }
+  
+  /* Smooth transitions */
+  .smooth-transition {
+    @apply transition-all duration-300 ease-in-out;
+  }
+}
