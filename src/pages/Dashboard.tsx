@@ -5,9 +5,11 @@ import { User } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle, Clock, AlertCircle } from "lucide-react";
+import { CheckCircle, Clock, AlertCircle, Bell, BellOff } from "lucide-react";
 import { useFeedback } from "@/contexts/FeedbackContext";
 import { getDelayWarning } from "@/utils/gamification";
+import { useNotifications } from "@/hooks/useNotifications";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 interface Medicamento {
   id: string;
@@ -34,11 +36,13 @@ interface HistoricoDose {
 const Dashboard = () => {
   const navigate = useNavigate();
   const feedback = useFeedback();
+  const notifications = useNotifications();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [medicamentos, setMedicamentos] = useState<Medicamento[]>([]);
   const [lembretes, setLembretes] = useState<Lembrete[]>([]);
   const [historico, setHistorico] = useState<HistoricoDose[]>([]);
+  const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -60,6 +64,14 @@ const Dashboard = () => {
     return () => subscription.unsubscribe();
   }, [navigate]);
 
+  // Verificar e solicitar permissão de notificações
+  useEffect(() => {
+    if (notifications.isSupported && notifications.permission === "default" && lembretes.length > 0) {
+      // Mostrar prompt apenas se usuário tem lembretes
+      setShowNotificationPrompt(true);
+    }
+  }, [notifications.isSupported, notifications.permission, lembretes.length]);
+
   const loadData = async () => {
     setLoading(true);
     
@@ -71,13 +83,32 @@ const Dashboard = () => {
     
     if (medsData) setMedicamentos(medsData);
 
-    // Carregar lembretes ativos
+    // Carregar lembretes ativos com informações do medicamento
     const { data: lemData } = await supabase
       .from("lembretes")
-      .select("*")
+      .select(`
+        *,
+        medicamentos!inner(nome, dosagem)
+      `)
       .eq("ativo", true);
     
-    if (lemData) setLembretes(lemData);
+    if (lemData) {
+      setLembretes(lemData);
+
+      // Agendar notificações se já tem permissão
+      if (notifications.isInitialized) {
+        const lembretesFormatados = lemData.map((l: any) => ({
+          id: l.id,
+          medicamento_id: l.medicamento_id,
+          medicamento_nome: l.medicamentos.nome,
+          dosagem: l.medicamentos.dosagem,
+          horario: l.horario,
+          ativo: l.ativo
+        }));
+
+        await notifications.scheduleAllForToday(lembretesFormatados);
+      }
+    }
 
     // Carregar histórico de hoje
     const today = new Date().toISOString().split("T")[0];
@@ -86,9 +117,67 @@ const Dashboard = () => {
       .select("*")
       .eq("data", today);
     
-    if (histData) setHistorico(histData as HistoricoDose[]);
+    // Se não há histórico para hoje, criar registros pendentes
+    if (!histData || histData.length === 0) {
+      if (lemData && lemData.length > 0) {
+        const historicoPendente = lemData.map((lembrete: any) => ({
+          lembrete_id: lembrete.id,
+          data: today,
+          status: 'pendente'
+        }));
+
+        const { data: novoHistorico } = await supabase
+          .from("historico_doses")
+          .insert(historicoPendente)
+          .select();
+
+        if (novoHistorico) setHistorico(novoHistorico as HistoricoDose[]);
+      }
+    } else {
+      setHistorico(histData as HistoricoDose[]);
+    }
 
     setLoading(false);
+  };
+
+  // Habilitar notificações
+  const handleEnableNotifications = async () => {
+    const result = await notifications.requestPermission();
+    
+    if (result === "granted") {
+      feedback.success("Notificações ativadas! Você será avisado nos horários programados.");
+      setShowNotificationPrompt(false);
+      
+      // Agendar notificações imediatamente
+      if (notifications.isInitialized) {
+        const { data: lemData } = await supabase
+          .from("lembretes")
+          .select(`
+            *,
+            medicamentos!inner(nome, dosagem)
+          `)
+          .eq("ativo", true);
+
+        if (lemData) {
+          const lembretesFormatados = lemData.map((l: any) => ({
+            id: l.id,
+            medicamento_id: l.medicamento_id,
+            medicamento_nome: l.medicamentos.nome,
+            dosagem: l.medicamentos.dosagem,
+            horario: l.horario,
+            ativo: l.ativo
+          }));
+
+          const scheduled = await notifications.scheduleAllForToday(lembretesFormatados);
+          
+          if (scheduled > 0) {
+            feedback.info(`${scheduled} notificações agendadas para hoje!`);
+          }
+        }
+      }
+    } else {
+      feedback.warning("Notificações bloqueadas. Você pode ativar nas configurações do navegador.");
+    }
   };
 
   const marcarDose = async (lembreteId: string, status: "tomado" | "esquecido") => {
@@ -204,6 +293,55 @@ const Dashboard = () => {
   return (
     <div className="min-h-screen bg-background p-4 pb-24">
       <main className="max-w-4xl mx-auto space-y-6">
+        {/* Prompt de Notificações */}
+        {showNotificationPrompt && (
+          <Alert className="border-primary">
+            <Bell className="h-4 w-4" />
+            <AlertTitle>Ative as notificações!</AlertTitle>
+            <AlertDescription className="flex items-center justify-between gap-4">
+              <span className="text-sm">
+                Receba lembretes nos horários dos seus medicamentos, mesmo com o app fechado.
+              </span>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={handleEnableNotifications}>
+                  Ativar
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setShowNotificationPrompt(false)}>
+                  Agora não
+                </Button>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Status das notificações */}
+        {notifications.isSupported && (
+          <div className="flex items-center justify-between bg-card border rounded-lg p-3">
+            <div className="flex items-center gap-2">
+              {notifications.permission === "granted" ? (
+                <>
+                  <Bell className="h-4 w-4 text-green-600" />
+                  <span className="text-sm text-muted-foreground">
+                    Notificações ativas
+                  </span>
+                </>
+              ) : (
+                <>
+                  <BellOff className="h-4 w-4 text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">
+                    Notificações desativadas
+                  </span>
+                </>
+              )}
+            </div>
+            {notifications.permission !== "granted" && (
+              <Button size="sm" variant="outline" onClick={handleEnableNotifications}>
+                Ativar
+              </Button>
+            )}
+          </div>
+        )}
+
         <div className="bg-card border rounded-lg p-4">
           <p className="text-base text-muted-foreground">
             📅 Hoje: <strong>{total}</strong> lembretes totais • ✅ <strong>{tomados}</strong> tomados • ⏰ <strong>{pendentes}</strong> pendentes
