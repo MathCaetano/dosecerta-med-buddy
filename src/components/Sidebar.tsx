@@ -1,4 +1,4 @@
-import { Home, Pill, History, User, Settings, Menu } from "lucide-react";
+import { Home, Pill, History, Settings, Menu } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -8,7 +8,6 @@ const menuItems = [
   { title: "Lembretes de Hoje", url: "/dashboard", icon: Home },
   { title: "Meus Medicamentos", url: "/medicamentos", icon: Pill },
   { title: "Histórico de Doses", url: "/history", icon: History },
-  { title: "Meu Perfil", url: "/profile", icon: User },
   { title: "Configurações", url: "/settings", icon: Settings },
 ];
 
