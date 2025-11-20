@@ -5,7 +5,7 @@ import { User } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle, Clock, AlertCircle, Bell, BellOff } from "lucide-react";
+import { CheckCircle, Clock, AlertCircle, Bell, BellOff, Loader2 } from "lucide-react";
 import { useFeedback } from "@/contexts/FeedbackContext";
 import { getDelayWarning } from "@/utils/gamification";
 import { useNotifications } from "@/hooks/useNotifications";
@@ -291,22 +291,39 @@ const Dashboard = () => {
   const { total, tomados, pendentes } = getTotaisHoje();
 
   return (
-    <div className="min-h-screen bg-background p-4 pb-24">
-      <main className="max-w-4xl mx-auto space-y-6">
-        {/* Prompt de Notificações */}
-        {showNotificationPrompt && (
-          <Alert className="border-primary">
-            <Bell className="h-4 w-4" />
-            <AlertTitle>Ative as notificações!</AlertTitle>
-            <AlertDescription className="flex items-center justify-between gap-4">
-              <span className="text-sm">
-                Receba lembretes nos horários dos seus medicamentos, mesmo com o app fechado.
-              </span>
-              <div className="flex gap-2">
-                <Button size="sm" onClick={handleEnableNotifications}>
-                  Ativar
+    <div className="w-full min-h-screen bg-background">
+      <div className="container mx-auto p-4 md:p-6 lg:p-8 max-w-5xl pb-8">
+        {/* Prompt de Notificações - Compacto e Responsivo */}
+        {showNotificationPrompt && notifications.isSupported && (
+          <Alert className="mb-6 animate-fade-in">
+            <Bell className="h-4 w-4 shrink-0" />
+            <AlertTitle>Ativar Notificações</AlertTitle>
+            <AlertDescription className="mt-2">
+              <p className="mb-3 text-sm">
+                Receba lembretes no horário certo para não esquecer seus medicamentos.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Button 
+                  onClick={handleEnableNotifications}
+                  className="flex-1 sm:flex-none touch-manipulation"
+                  disabled={enablingNotifications}
+                  size="sm"
+                >
+                  {enablingNotifications ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Ativando...
+                    </>
+                  ) : (
+                    "Ativar"
+                  )}
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => setShowNotificationPrompt(false)}>
+                <Button 
+                  size="sm" 
+                  variant="ghost" 
+                  onClick={() => setShowNotificationPrompt(false)}
+                  className="flex-1 sm:flex-none touch-manipulation"
+                >
                   Agora não
                 </Button>
               </div>
