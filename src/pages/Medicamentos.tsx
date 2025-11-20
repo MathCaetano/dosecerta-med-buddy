@@ -4,8 +4,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { User } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plus, Pencil, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
+import { useFeedback } from "@/contexts/FeedbackContext";
 import { useNotifications } from "@/hooks/useNotifications";
 import {
   Dialog,
@@ -38,6 +38,7 @@ interface Medicamento {
 
 const Medicamentos = () => {
   const navigate = useNavigate();
+  const feedback = useFeedback();
   const notifications = useNotifications();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -49,10 +50,16 @@ const Medicamentos = () => {
   const [editNome, setEditNome] = useState("");
   const [editDosagem, setEditDosagem] = useState("");
   const [editObservacoes, setEditObservacoes] = useState("");
+  const [saving, setSaving] = useState(false);
   
   // Estados para exclusão
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deletingMed, setDeletingMed] = useState<Medicamento | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  
+  // Validação em tempo real
+  const [nomeError, setNomeError] = useState("");
+  const [dosagemError, setDosagemError] = useState("");
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -92,7 +99,34 @@ const Medicamentos = () => {
     setEditNome(med.nome);
     setEditDosagem(med.dosagem);
     setEditObservacoes(med.observacoes || "");
+    setNomeError("");
+    setDosagemError("");
     setEditDialogOpen(true);
+  };
+
+  const validateNome = (value: string) => {
+    if (!value.trim()) {
+      setNomeError("Obrigatório");
+      return false;
+    }
+    const duplicate = medicamentos.find(
+      m => m.id !== editingMed?.id && m.nome.toLowerCase() === value.trim().toLowerCase()
+    );
+    if (duplicate) {
+      setNomeError("Nome já cadastrado");
+      return false;
+    }
+    setNomeError("");
+    return true;
+  };
+
+  const validateDosagem = (value: string) => {
+    if (!value.trim()) {
+      setDosagemError("Obrigatório");
+      return false;
+    }
+    setDosagemError("");
+    return true;
   };
 
   const handleDelete = (med: Medicamento, e: React.MouseEvent) => {
@@ -104,59 +138,67 @@ const Medicamentos = () => {
   const saveEdit = async () => {
     if (!editingMed) return;
     
-    if (!editNome.trim() || !editDosagem.trim()) {
-      toast.error("Nome e dosagem são obrigatórios");
-      return;
-    }
-
-    const duplicate = medicamentos.find(
-      m => m.id !== editingMed.id && m.nome.toLowerCase() === editNome.trim().toLowerCase()
-    );
+    const nomeValid = validateNome(editNome);
+    const dosagemValid = validateDosagem(editDosagem);
     
-    if (duplicate) {
-      toast.error("Já existe um medicamento com este nome");
+    if (!nomeValid || !dosagemValid) {
+      feedback.error("Corrija os erros");
       return;
     }
 
-    const { error } = await supabase
-      .from("medicamentos")
-      .update({
-        nome: editNome.trim(),
-        dosagem: editDosagem.trim(),
-        observacoes: editObservacoes.trim() || null,
-      })
-      .eq("id", editingMed.id);
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from("medicamentos")
+        .update({
+          nome: editNome.trim(),
+          dosagem: editDosagem.trim(),
+          observacoes: editObservacoes.trim() || null,
+        })
+        .eq("id", editingMed.id);
 
-    if (error) {
-      toast.error("Erro ao atualizar medicamento");
-      console.error(error);
-    } else {
-      toast.success("Medicamento atualizado com sucesso");
+      if (error) throw error;
+
+      // Atualizar lista localmente para feedback instantâneo
+      setMedicamentos(prev => prev.map(m => 
+        m.id === editingMed.id 
+          ? { ...m, nome: editNome.trim(), dosagem: editDosagem.trim(), observacoes: editObservacoes.trim() || null }
+          : m
+      ));
+
+      feedback.success("Atualizado");
       setEditDialogOpen(false);
-      loadMedicamentos();
+    } catch (error: any) {
+      feedback.error("Erro ao atualizar");
+    } finally {
+      setSaving(false);
     }
   };
 
   const confirmDelete = async () => {
     if (!deletingMed) return;
 
-    // Cancelar notificações antes de deletar
-    if (notifications.isInitialized) {
+    setDeleting(true);
+    try {
+      // Cancelar todas as notificações do medicamento
       await notifications.cancelMedicationNotifications(deletingMed.id);
-    }
 
-    const { error } = await supabase
-      .from("medicamentos")
-      .delete()
-      .eq("id", deletingMed.id);
+      const { error } = await supabase
+        .from("medicamentos")
+        .delete()
+        .eq("id", deletingMed.id);
 
-    if (error) {
-      toast.error("Erro ao excluir medicamento");
-      console.error(error);
-    } else {
-      toast.success("Medicamento excluído com sucesso");
+      if (error) throw error;
+
+      // Remover da lista localmente para feedback instantâneo
+      setMedicamentos(prev => prev.filter(m => m.id !== deletingMed.id));
+
+      feedback.success("Excluído");
       setDeleteDialogOpen(false);
-      loadMedicamentos();
+    } catch (error: any) {
+      feedback.error("Erro ao excluir");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -187,7 +229,7 @@ const Medicamentos = () => {
               medicamentos.map((med) => (
                 <div
                   key={med.id}
-                  className="flex items-center justify-between p-4 border rounded-lg bg-card hover:bg-accent/50 transition-colors"
+                  className="flex items-center justify-between p-4 border rounded-lg bg-card hover:bg-accent/50 transition-all hover:scale-[1.01] animate-in fade-in slide-in-from-bottom-2"
                 >
                   <div className="flex-1">
                     <p className="font-medium text-base">{med.nome}</p>
@@ -200,7 +242,7 @@ const Medicamentos = () => {
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-8 w-8"
+                      className="h-8 w-8 hover:scale-110 transition-transform"
                       onClick={(e) => handleEdit(med, e)}
                     >
                       <Pencil className="h-4 w-4" />
@@ -208,7 +250,7 @@ const Medicamentos = () => {
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-8 w-8 text-destructive hover:text-destructive"
+                      className="h-8 w-8 text-destructive hover:text-destructive hover:scale-110 transition-transform"
                       onClick={(e) => handleDelete(med, e)}
                     >
                       <Trash2 className="h-4 w-4" />
@@ -246,18 +288,32 @@ const Medicamentos = () => {
               <Input
                 id="edit-nome"
                 value={editNome}
-                onChange={(e) => setEditNome(e.target.value)}
+                onChange={(e) => {
+                  setEditNome(e.target.value);
+                  validateNome(e.target.value);
+                }}
                 placeholder="Ex: Paracetamol"
+                className={nomeError ? "border-destructive" : ""}
               />
+              {nomeError && (
+                <p className="text-sm text-destructive animate-in fade-in slide-in-from-top-1">{nomeError}</p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-dosagem">Dosagem</Label>
               <Input
                 id="edit-dosagem"
                 value={editDosagem}
-                onChange={(e) => setEditDosagem(e.target.value)}
+                onChange={(e) => {
+                  setEditDosagem(e.target.value);
+                  validateDosagem(e.target.value);
+                }}
                 placeholder="Ex: 500mg"
+                className={dosagemError ? "border-destructive" : ""}
               />
+              {dosagemError && (
+                <p className="text-sm text-destructive animate-in fade-in slide-in-from-top-1">{dosagemError}</p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-observacoes">Observações (opcional)</Label>
@@ -271,11 +327,18 @@ const Medicamentos = () => {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setEditDialogOpen(false)} disabled={saving}>
               Cancelar
             </Button>
-            <Button onClick={saveEdit} className="bg-green-600 hover:bg-green-700">
-              Salvar alterações
+            <Button onClick={saveEdit} disabled={saving} className="min-w-[140px]">
+              {saving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Salvando...
+                </>
+              ) : (
+                "Salvar alterações"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

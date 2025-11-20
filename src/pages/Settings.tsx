@@ -1,20 +1,28 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LogOut, User } from "lucide-react";
-import { toast } from "sonner";
+import { useFeedback } from "@/contexts/FeedbackContext";
 
 const Settings = () => {
   const navigate = useNavigate();
+  const feedback = useFeedback();
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const handleLogout = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      toast.error("Erro ao sair: " + error.message);
-    } else {
-      toast.success("Você saiu da conta");
-      navigate("/auth");
+    setLoggingOut(true);
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        feedback.error("Erro ao sair");
+      } else {
+        feedback.success("Até logo!");
+        navigate("/auth");
+      }
+    } finally {
+      setLoggingOut(false);
     }
   };
 
@@ -54,8 +62,13 @@ const Settings = () => {
                   </p>
                 </div>
               </div>
-              <Button variant="destructive" onClick={handleLogout}>
-                Sair
+              <Button 
+                variant="destructive" 
+                onClick={handleLogout}
+                disabled={loggingOut}
+                className="min-w-[80px]"
+              >
+                {loggingOut ? "Saindo..." : "Sair"}
               </Button>
             </div>
           </CardContent>
