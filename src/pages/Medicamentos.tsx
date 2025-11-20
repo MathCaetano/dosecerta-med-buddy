@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { useNotifications } from "@/hooks/useNotifications";
 import {
   Dialog,
   DialogContent,
@@ -37,6 +38,7 @@ interface Medicamento {
 
 const Medicamentos = () => {
   const navigate = useNavigate();
+  const notifications = useNotifications();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [medicamentos, setMedicamentos] = useState<Medicamento[]>([]);
@@ -137,6 +139,11 @@ const Medicamentos = () => {
 
   const confirmDelete = async () => {
     if (!deletingMed) return;
+
+    // Cancelar notificações antes de deletar
+    if (notifications.isInitialized) {
+      await notifications.cancelMedicationNotifications(deletingMed.id);
+    }
 
     const { error } = await supabase
       .from("medicamentos")
