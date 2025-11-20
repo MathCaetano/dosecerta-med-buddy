@@ -43,6 +43,8 @@ const Dashboard = () => {
   const [lembretes, setLembretes] = useState<Lembrete[]>([]);
   const [historico, setHistorico] = useState<HistoricoDose[]>([]);
   const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
+  const [enablingNotifications, setEnablingNotifications] = useState(false);
+  const [processingDose, setProcessingDose] = useState<string | null>(null);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -142,62 +144,70 @@ const Dashboard = () => {
 
   // Habilitar notificações
   const handleEnableNotifications = async () => {
-    const result = await notifications.requestPermission();
-    
-    if (result === "granted") {
-      feedback.success("Notificações ativadas! Você será avisado nos horários programados.");
-      setShowNotificationPrompt(false);
+    setEnablingNotifications(true);
+    try {
+      const result = await notifications.requestPermission();
       
-      // Agendar notificações imediatamente
-      if (notifications.isInitialized) {
-        const { data: lemData } = await supabase
-          .from("lembretes")
-          .select(`
-            *,
-            medicamentos!inner(nome, dosagem)
-          `)
-          .eq("ativo", true);
+      if (result === "granted") {
+        feedback.success("Notificações ativadas!");
+        setShowNotificationPrompt(false);
+        
+        // Agendar notificações imediatamente
+        if (notifications.isInitialized) {
+          const { data: lemData } = await supabase
+            .from("lembretes")
+            .select(`
+              *,
+              medicamentos!inner(nome, dosagem)
+            `)
+            .eq("ativo", true);
 
-        if (lemData) {
-          const lembretesFormatados = lemData.map((l: any) => ({
-            id: l.id,
-            medicamento_id: l.medicamento_id,
-            medicamento_nome: l.medicamentos.nome,
-            dosagem: l.medicamentos.dosagem,
-            horario: l.horario,
-            ativo: l.ativo
-          }));
+          if (lemData) {
+            const lembretesFormatados = lemData.map((l: any) => ({
+              id: l.id,
+              medicamento_id: l.medicamento_id,
+              medicamento_nome: l.medicamentos.nome,
+              dosagem: l.medicamentos.dosagem,
+              horario: l.horario,
+              ativo: l.ativo
+            }));
 
-          const scheduled = await notifications.scheduleAllForToday(lembretesFormatados);
-          
-          if (scheduled > 0) {
-            feedback.info(`${scheduled} notificações agendadas para hoje!`);
+            await notifications.scheduleAllForToday(lembretesFormatados);
           }
         }
+      } else {
+        feedback.warning("Permissão negada");
       }
-    } else {
-      feedback.warning("Notificações bloqueadas. Você pode ativar nas configurações do navegador.");
+    } catch (error) {
+      feedback.error("Erro ao ativar notificações");
+    } finally {
+      setEnablingNotifications(false);
     }
   };
 
   const marcarDose = async (lembreteId: string, status: "tomado" | "esquecido") => {
-    const today = new Date().toISOString().split("T")[0];
-    const now = new Date().toTimeString().split(" ")[0];
-    const lembrete = lembretes.find(l => l.id === lembreteId);
-    const horarioLembrete = lembrete?.horario || "";
+    setProcessingDose(lembreteId);
     
-    // Verificar se já existe registro para hoje
-    const existing = historico.find(h => h.lembrete_id === lembreteId && h.data === today);
+    try {
+      const today = new Date().toISOString().split("T")[0];
+      const now = new Date().toTimeString().split(" ")[0];
+      const lembrete = lembretes.find(l => l.id === lembreteId);
+      const horarioLembrete = lembrete?.horario || "";
+      
+      // Verificar se já existe registro para hoje
+      const existing = historico.find(h => h.lembrete_id === lembreteId && h.data === today);
 
-    if (existing) {
-      const { error } = await supabase
-        .from("historico_doses")
-        .update({ status, horario_real: now })
-        .eq("id", existing.id);
+      if (existing) {
+        const { error } = await supabase
+          .from("historico_doses")
+          .update({ status, horario_real: now })
+          .eq("id", existing.id);
 
-      if (error) {
-        feedback.error("Erro ao atualizar dose");
-      } else {
+        if (error) {
+          feedback.error("Erro ao atualizar");
+          return;
+        }
+        
         if (status === "tomado") {
           const [horaLembrete, minutoLembrete] = horarioLembrete.split(":").map(Number);
           const [horaReal, minutoReal] = now.split(":").map(Number);
@@ -207,33 +217,32 @@ const Dashboard = () => {
           feedback.success(
             delayMinutes > 30 
               ? `Dose marcada! ${warningMsg || ""}` 
-              : "Dose marcada no horário! Continue assim! ✨"
+              : "Dose marcada! ✨"
           );
         } else {
-          feedback.info("Dose marcada como esquecida. Próxima tente não esquecer!");
+          feedback.info("Registrado");
         }
-        loadData();
-      }
-    } else {
-      const { error } = await supabase
-        .from("historico_doses")
-        .insert({
-          lembrete_id: lembreteId,
-          data: today,
-          horario_real: now,
-          status,
-        });
-
-      if (error) {
-        feedback.error("Erro ao registrar dose");
+        await loadData();
       } else {
-        if (status === "tomado") {
-          feedback.success("Dose marcada! Você está no caminho certo! 💪");
-        } else {
-          feedback.warning("Dose marcada como esquecida");
+        const { error } = await supabase
+          .from("historico_doses")
+          .insert({
+            lembrete_id: lembreteId,
+            data: today,
+            horario_real: now,
+            status,
+          });
+
+        if (error) {
+          feedback.error("Erro ao registrar");
+          return;
         }
-        loadData();
+        
+        feedback.success(status === "tomado" ? "Dose marcada! 💪" : "Registrado");
+        await loadData();
       }
+    } finally {
+      setProcessingDose(null);
     }
   };
 
@@ -402,14 +411,24 @@ const Dashboard = () => {
                         <Button
                           size="sm"
                           onClick={() => marcarDose(lembrete.id, "tomado")}
-                          className="bg-green-600 hover:bg-green-700"
+                          className="bg-success hover:bg-success/90 touch-manipulation min-h-[44px]"
+                          disabled={processingDose === lembrete.id}
                         >
-                          Tomei
+                          {processingDose === lembrete.id ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              <span className="hidden sm:inline">Salvando...</span>
+                            </>
+                          ) : (
+                            "Tomei"
+                          )}
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
                           onClick={() => marcarDose(lembrete.id, "esquecido")}
+                          className="touch-manipulation min-h-[44px]"
+                          disabled={processingDose === lembrete.id}
                         >
                           Esqueci
                         </Button>
@@ -421,7 +440,7 @@ const Dashboard = () => {
             )}
           </CardContent>
         </Card>
-      </main>
+      </div>
     </div>
   );
 };
