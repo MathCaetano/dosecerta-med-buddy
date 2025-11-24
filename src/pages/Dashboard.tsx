@@ -340,9 +340,10 @@ const Dashboard = () => {
           </Alert>
         )}
 
-        {/* Status das notificações */}
-        {notifications.isSupported && (
-          <div className="flex items-center justify-between bg-card border rounded-lg p-3">
+        <div className="space-y-6">
+          {/* Status das notificações */}
+          {notifications.isSupported && (
+            <div className="flex items-center justify-between bg-card border rounded-lg p-3 mb-6">
             <div className="flex items-center gap-2">
               {notifications.permission === "granted" ? (
                 <>
@@ -365,16 +366,16 @@ const Dashboard = () => {
                 Ativar
               </Button>
             )}
-          </div>
-        )}
+            </div>
+          )}
 
-        <div className="bg-card border rounded-lg p-4">
+          <div className="bg-card border rounded-lg p-4 mb-6">
           <p className="text-base text-muted-foreground">
             📅 Hoje: <strong>{total}</strong> lembretes totais • ✅ <strong>{tomados}</strong> tomados • ⏰ <strong>{pendentes}</strong> pendentes
           </p>
-        </div>
+          </div>
 
-        <Card>
+          <Card>
           <CardHeader>
             <CardTitle className="text-2xl">Lembretes de Hoje</CardTitle>
             <CardDescription className="text-base">
@@ -439,7 +440,8 @@ const Dashboard = () => {
               })
             )}
           </CardContent>
-        </Card>
+          </Card>
+        </div>
       </div>
     </div>
   );
