@@ -204,7 +204,9 @@ const Dashboard = () => {
           .eq("id", existing.id);
 
         if (error) {
+          console.error("Erro ao atualizar historico:", error);
           feedback.error("Erro ao atualizar");
+          setProcessingDose(null);
           return;
         }
         
@@ -222,7 +224,6 @@ const Dashboard = () => {
         } else {
           feedback.info("Registrado");
         }
-        await loadData();
       } else {
         const { error } = await supabase
           .from("historico_doses")
@@ -234,13 +235,20 @@ const Dashboard = () => {
           });
 
         if (error) {
+          console.error("Erro ao inserir historico:", error);
           feedback.error("Erro ao registrar");
+          setProcessingDose(null);
           return;
         }
         
         feedback.success(status === "tomado" ? "Dose marcada! 💪" : "Registrado");
-        await loadData();
       }
+      
+      // Recarregar dados após sucesso
+      await loadData();
+    } catch (error) {
+      console.error("Erro ao marcar dose:", error);
+      feedback.error("Erro inesperado");
     } finally {
       setProcessingDose(null);
     }
