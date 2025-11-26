@@ -11,6 +11,8 @@ import { ArrowLeft, Plus, X, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useNotifications } from "@/hooks/useNotifications";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { TimePickerScrollable } from "@/components/ui/time-picker-scrollable";
+import { DosageSelector } from "@/components/ui/dosage-selector";
 
 interface Horario {
   horario: string;
@@ -248,13 +250,9 @@ const AddMedication = () => {
                 <Label htmlFor="dosagem" className="text-base">
                   Dosagem *
                 </Label>
-                <Input
-                  id="dosagem"
-                  type="text"
-                  placeholder="Ex: 500mg"
+                <DosageSelector
                   value={formData.dosagem}
-                  onChange={(e) => setFormData({ ...formData, dosagem: e.target.value })}
-                  className="text-base h-12"
+                  onChange={(value) => setFormData({ ...formData, dosagem: value })}
                   disabled={isLoading}
                 />
               </div>
@@ -311,12 +309,9 @@ const AddMedication = () => {
                         <Label htmlFor={`horario-${index}`} className="text-base">
                           Horário *
                         </Label>
-                        <Input
-                          id={`horario-${index}`}
-                          type="time"
+                        <TimePickerScrollable
                           value={horario.horario}
-                          onChange={(e) => updateHorario(index, "horario", e.target.value)}
-                          className="text-base h-12"
+                          onChange={(value) => updateHorario(index, "horario", value)}
                           disabled={isLoading}
                         />
                       </div>
