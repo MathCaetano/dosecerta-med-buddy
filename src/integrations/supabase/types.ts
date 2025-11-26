@@ -114,6 +114,39 @@ export type Database = {
         }
         Relationships: []
       }
+      notification_analytics: {
+        Row: {
+          created_at: string
+          evento_tipo: string
+          id: string
+          lembrete_id: string | null
+          medicamento_id: string | null
+          metadata: Json | null
+          timestamp: string
+          usuario_id: string
+        }
+        Insert: {
+          created_at?: string
+          evento_tipo: string
+          id?: string
+          lembrete_id?: string | null
+          medicamento_id?: string | null
+          metadata?: Json | null
+          timestamp?: string
+          usuario_id: string
+        }
+        Update: {
+          created_at?: string
+          evento_tipo?: string
+          id?: string
+          lembrete_id?: string | null
+          medicamento_id?: string | null
+          metadata?: Json | null
+          timestamp?: string
+          usuario_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -146,6 +179,17 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      analytics_por_medicamento: {
+        Args: { _data_fim?: string; _data_inicio?: string; _usuario_id: string }
+        Returns: {
+          medicamento_id: string
+          medicamento_nome: string
+          taxa_engajamento: number
+          total_cliques: number
+          total_doses_tomadas: number
+          total_notificacoes: number
+        }[]
+      }
       calcular_adesao_usuario: {
         Args: { _data_fim?: string; _data_inicio?: string; _usuario_id: string }
         Returns: {
@@ -154,6 +198,19 @@ export type Database = {
           doses_tomadas: number
           percentual_adesao: number
           total_doses: number
+        }[]
+      }
+      calcular_taxa_entrega_notificacoes: {
+        Args: { _data_fim?: string; _data_inicio?: string; _usuario_id: string }
+        Returns: {
+          taxa_acao: number
+          taxa_cliques: number
+          taxa_entrega: number
+          total_acoes_adiadas: number
+          total_acoes_tomadas: number
+          total_agendadas: number
+          total_clicadas: number
+          total_entregues: number
         }[]
       }
       marcar_doses_esquecidas: { Args: never; Returns: undefined }

@@ -137,7 +137,8 @@ const AddMedication = () => {
             lembrete.id,
             formData.nome,
             formData.dosagem,
-            lembrete.horario
+            lembrete.horario,
+            medicamentoId
           );
           if (success) scheduled++;
         }

@@ -9,6 +9,7 @@ import { CheckCircle, Clock, AlertCircle, Bell, BellOff } from "lucide-react";
 import { useFeedback } from "@/contexts/FeedbackContext";
 import { getDelayWarning } from "@/utils/gamification";
 import { useNotifications } from "@/hooks/useNotifications";
+import { useAnalytics } from "@/hooks/useAnalytics";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 interface Medicamento {
@@ -37,6 +38,7 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const feedback = useFeedback();
   const notifications = useNotifications();
+  const { trackActionTaken } = useAnalytics();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [medicamentos, setMedicamentos] = useState<Medicamento[]>([]);
@@ -198,7 +200,13 @@ const Dashboard = () => {
       if (error) {
         feedback.error("Erro ao atualizar dose");
       } else {
+        // Rastrear ação se foi marcado como tomado
         if (status === "tomado") {
+          const medicamento = medicamentos.find(m => m.id === lembrete?.medicamento_id);
+          if (medicamento && lembrete) {
+            await trackActionTaken(lembrete.id, medicamento.id);
+          }
+          
           const [horaLembrete, minutoLembrete] = horarioLembrete.split(":").map(Number);
           const [horaReal, minutoReal] = now.split(":").map(Number);
           const delayMinutes = (horaReal * 60 + minutoReal) - (horaLembrete * 60 + minutoLembrete);
@@ -227,7 +235,12 @@ const Dashboard = () => {
       if (error) {
         feedback.error("Erro ao registrar dose");
       } else {
+        // Rastrear ação se foi marcado como tomado
         if (status === "tomado") {
+          const medicamento = medicamentos.find(m => m.id === lembrete?.medicamento_id);
+          if (medicamento && lembrete) {
+            await trackActionTaken(lembrete.id, medicamento.id);
+          }
           feedback.success("Dose marcada! Você está no caminho certo! 💪");
         } else {
           feedback.warning("Dose marcada como esquecida");

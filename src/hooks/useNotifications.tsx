@@ -70,7 +70,8 @@ export const useNotifications = () => {
       lembreteId: string,
       medicamentoNome: string,
       dosagem: string,
-      horario: string
+      horario: string,
+      medicamentoId?: string
     ) => {
       if (!isInitialized) {
         console.warn("Scheduler não inicializado");
@@ -81,7 +82,8 @@ export const useNotifications = () => {
         lembreteId,
         medicamentoNome,
         dosagem,
-        horario
+        horario,
+        medicamentoId
       );
     },
     [isInitialized]
