@@ -80,7 +80,8 @@ class NotificationScheduler {
     lembreteId: string,
     medicamentoNome: string,
     dosagem: string,
-    horario: string
+    horario: string,
+    medicamentoId?: string
   ): Promise<boolean> {
     if (!this.isEnabled()) {
       console.warn('Notificações não estão habilitadas');
@@ -124,13 +125,26 @@ class NotificationScheduler {
             lembreteId,
             medicamentoNome,
             dosagem,
-            horario
+            horario,
+            medicamentoId
           },
           delay
         });
       }
 
       console.log(`Notificação agendada para ${horario} (${delay}ms)`);
+      
+      // Rastrear agendamento via postMessage para background
+      if (medicamentoId && this.serviceWorkerRegistration?.active) {
+        this.serviceWorkerRegistration.active.postMessage({
+          type: 'TRACK_ANALYTICS',
+          event: 'scheduled',
+          lembreteId,
+          medicamentoId,
+          metadata: { horario }
+        });
+      }
+      
       return true;
     } catch (error) {
       console.error('Erro ao agendar notificação:', error);
