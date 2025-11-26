@@ -89,6 +89,12 @@ class NotificationScheduler {
     }
 
     try {
+      // ✅ ANTI-DUPLICAÇÃO: Verificar se já está agendado
+      if (this.scheduledNotifications.has(lembreteId)) {
+        console.log(`[Scheduler] Notificação já agendada: ${lembreteId}, pulando duplicata`);
+        return true; // Retorna sucesso pois já está agendada
+      }
+
       // Calcular delay até o horário
       const now = new Date();
       const [hours, minutes] = horario.split(':').map(Number);
@@ -102,6 +108,12 @@ class NotificationScheduler {
       }
 
       const delay = targetTime.getTime() - now.getTime();
+
+      // ✅ Validar delay razoável (não mais de 25 horas)
+      if (delay > 25 * 60 * 60 * 1000) {
+        console.warn(`[Scheduler] Delay muito longo (${delay}ms), ajustando`);
+        targetTime.setDate(targetTime.getDate() - 1);
+      }
 
       // Armazenar notificação agendada
       const notification: ScheduledNotification = {
@@ -132,7 +144,7 @@ class NotificationScheduler {
         });
       }
 
-      console.log(`Notificação agendada para ${horario} (${delay}ms)`);
+      console.log(`[Scheduler] Notificação agendada: ${lembreteId} para ${horario} (${Math.round(delay / 1000 / 60)}min)`);
       
       // Rastrear agendamento via postMessage para background
       if (medicamentoId && this.serviceWorkerRegistration?.active) {
@@ -141,13 +153,16 @@ class NotificationScheduler {
           event: 'scheduled',
           lembreteId,
           medicamentoId,
-          metadata: { horario }
+          metadata: { 
+            horario,
+            scheduledFor: targetTime.toISOString()
+          }
         });
       }
       
       return true;
     } catch (error) {
-      console.error('Erro ao agendar notificação:', error);
+      console.error('[Scheduler] Erro ao agendar notificação:', error);
       return false;
     }
   }
@@ -275,14 +290,15 @@ class NotificationScheduler {
   }
 
   /**
-   * Limpar notificações expiradas
+   * Limpar notificações expiradas e inválidas
    */
   cleanExpired(): void {
     const now = Date.now();
     let removed = 0;
 
     this.scheduledNotifications.forEach((notification, lembreteId) => {
-      if (notification.timestamp < now) {
+      // Remover se expirou há mais de 1 hora
+      if (notification.timestamp < (now - 60 * 60 * 1000)) {
         this.scheduledNotifications.delete(lembreteId);
         removed++;
       }
@@ -290,8 +306,26 @@ class NotificationScheduler {
 
     if (removed > 0) {
       this.saveToStorage();
-      console.log(`${removed} notificações expiradas removidas`);
+      console.log(`[Scheduler] ${removed} notificações expiradas removidas`);
     }
+  }
+
+  /**
+   * Limpar todas as notificações agendadas
+   */
+  clearAll(): void {
+    const count = this.scheduledNotifications.size;
+    this.scheduledNotifications.clear();
+    this.saveToStorage();
+    console.log(`[Scheduler] ${count} notificações limpas`);
+  }
+
+  /**
+   * Verificar integridade e remover duplicatas
+   */
+  async validateAndClean(): Promise<void> {
+    // Implementar validação futura contra banco de dados
+    console.log(`[Scheduler] Validando ${this.scheduledNotifications.size} notificações`);
   }
 }
 
