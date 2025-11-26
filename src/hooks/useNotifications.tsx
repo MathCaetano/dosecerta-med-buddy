@@ -35,6 +35,39 @@ export const useNotifications = () => {
     init();
   }, []);
 
+  // ✅ Verificar permissões periodicamente
+  useEffect(() => {
+    if (!("Notification" in window)) return;
+
+    const checkPermissions = () => {
+      const currentPermission = Notification.permission;
+      if (currentPermission !== permission) {
+        console.log(`[Notifications] Permissão mudou: ${permission} → ${currentPermission}`);
+        setPermission(currentPermission);
+        
+        // Se foi concedida, re-inicializar
+        if (currentPermission === "granted" && !isInitialized) {
+          notificationScheduler.initialize().then(success => {
+            setIsInitialized(success);
+            if (success) {
+              notificationScheduler.loadFromStorage();
+            }
+          });
+        }
+        
+        // Se foi revogada, limpar
+        if (currentPermission === "denied" && isInitialized) {
+          setIsInitialized(false);
+        }
+      }
+    };
+
+    // Verificar a cada 5 segundos
+    const interval = setInterval(checkPermissions, 5000);
+    
+    return () => clearInterval(interval);
+  }, [permission, isInitialized]);
+
   // Solicitar permissão e inicializar
   const requestPermission = useCallback(async () => {
     if (!("Notification" in window)) {
