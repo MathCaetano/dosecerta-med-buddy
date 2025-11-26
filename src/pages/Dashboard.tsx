@@ -5,7 +5,7 @@ import { User } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle, Clock, AlertCircle, Bell, BellOff, Loader2 } from "lucide-react";
+import { CheckCircle, Clock, AlertCircle, Bell, BellOff } from "lucide-react";
 import { useFeedback } from "@/contexts/FeedbackContext";
 import { getDelayWarning } from "@/utils/gamification";
 import { useNotifications } from "@/hooks/useNotifications";
@@ -43,8 +43,6 @@ const Dashboard = () => {
   const [lembretes, setLembretes] = useState<Lembrete[]>([]);
   const [historico, setHistorico] = useState<HistoricoDose[]>([]);
   const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
-  const [enablingNotifications, setEnablingNotifications] = useState(false);
-  const [processingDose, setProcessingDose] = useState<string | null>(null);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -144,72 +142,62 @@ const Dashboard = () => {
 
   // Habilitar notificações
   const handleEnableNotifications = async () => {
-    setEnablingNotifications(true);
-    try {
-      const result = await notifications.requestPermission();
+    const result = await notifications.requestPermission();
+    
+    if (result === "granted") {
+      feedback.success("Notificações ativadas! Você será avisado nos horários programados.");
+      setShowNotificationPrompt(false);
       
-      if (result === "granted") {
-        feedback.success("Notificações ativadas!");
-        setShowNotificationPrompt(false);
-        
-        // Agendar notificações imediatamente
-        if (notifications.isInitialized) {
-          const { data: lemData } = await supabase
-            .from("lembretes")
-            .select(`
-              *,
-              medicamentos!inner(nome, dosagem)
-            `)
-            .eq("ativo", true);
+      // Agendar notificações imediatamente
+      if (notifications.isInitialized) {
+        const { data: lemData } = await supabase
+          .from("lembretes")
+          .select(`
+            *,
+            medicamentos!inner(nome, dosagem)
+          `)
+          .eq("ativo", true);
 
-          if (lemData) {
-            const lembretesFormatados = lemData.map((l: any) => ({
-              id: l.id,
-              medicamento_id: l.medicamento_id,
-              medicamento_nome: l.medicamentos.nome,
-              dosagem: l.medicamentos.dosagem,
-              horario: l.horario,
-              ativo: l.ativo
-            }));
+        if (lemData) {
+          const lembretesFormatados = lemData.map((l: any) => ({
+            id: l.id,
+            medicamento_id: l.medicamento_id,
+            medicamento_nome: l.medicamentos.nome,
+            dosagem: l.medicamentos.dosagem,
+            horario: l.horario,
+            ativo: l.ativo
+          }));
 
-            await notifications.scheduleAllForToday(lembretesFormatados);
+          const scheduled = await notifications.scheduleAllForToday(lembretesFormatados);
+          
+          if (scheduled > 0) {
+            feedback.info(`${scheduled} notificações agendadas para hoje!`);
           }
         }
-      } else {
-        feedback.warning("Permissão negada");
       }
-    } catch (error) {
-      feedback.error("Erro ao ativar notificações");
-    } finally {
-      setEnablingNotifications(false);
+    } else {
+      feedback.warning("Notificações bloqueadas. Você pode ativar nas configurações do navegador.");
     }
   };
 
   const marcarDose = async (lembreteId: string, status: "tomado" | "esquecido") => {
-    setProcessingDose(lembreteId);
+    const today = new Date().toISOString().split("T")[0];
+    const now = new Date().toTimeString().split(" ")[0];
+    const lembrete = lembretes.find(l => l.id === lembreteId);
+    const horarioLembrete = lembrete?.horario || "";
     
-    try {
-      const today = new Date().toISOString().split("T")[0];
-      const now = new Date().toTimeString().split(" ")[0];
-      const lembrete = lembretes.find(l => l.id === lembreteId);
-      const horarioLembrete = lembrete?.horario || "";
-      
-      // Verificar se já existe registro para hoje
-      const existing = historico.find(h => h.lembrete_id === lembreteId && h.data === today);
+    // Verificar se já existe registro para hoje
+    const existing = historico.find(h => h.lembrete_id === lembreteId && h.data === today);
 
-      if (existing) {
-        const { error } = await supabase
-          .from("historico_doses")
-          .update({ status, horario_real: now })
-          .eq("id", existing.id);
+    if (existing) {
+      const { error } = await supabase
+        .from("historico_doses")
+        .update({ status, horario_real: now })
+        .eq("id", existing.id);
 
-        if (error) {
-          console.error("Erro ao atualizar historico:", error);
-          feedback.error("Erro ao atualizar");
-          setProcessingDose(null);
-          return;
-        }
-        
+      if (error) {
+        feedback.error("Erro ao atualizar dose");
+      } else {
         if (status === "tomado") {
           const [horaLembrete, minutoLembrete] = horarioLembrete.split(":").map(Number);
           const [horaReal, minutoReal] = now.split(":").map(Number);
@@ -219,38 +207,33 @@ const Dashboard = () => {
           feedback.success(
             delayMinutes > 30 
               ? `Dose marcada! ${warningMsg || ""}` 
-              : "Dose marcada! ✨"
+              : "Dose marcada no horário! Continue assim! ✨"
           );
         } else {
-          feedback.info("Registrado");
+          feedback.info("Dose marcada como esquecida. Próxima tente não esquecer!");
         }
-      } else {
-        const { error } = await supabase
-          .from("historico_doses")
-          .insert({
-            lembrete_id: lembreteId,
-            data: today,
-            horario_real: now,
-            status,
-          });
-
-        if (error) {
-          console.error("Erro ao inserir historico:", error);
-          feedback.error("Erro ao registrar");
-          setProcessingDose(null);
-          return;
-        }
-        
-        feedback.success(status === "tomado" ? "Dose marcada! 💪" : "Registrado");
+        loadData();
       }
-      
-      // Recarregar dados após sucesso
-      await loadData();
-    } catch (error) {
-      console.error("Erro ao marcar dose:", error);
-      feedback.error("Erro inesperado");
-    } finally {
-      setProcessingDose(null);
+    } else {
+      const { error } = await supabase
+        .from("historico_doses")
+        .insert({
+          lembrete_id: lembreteId,
+          data: today,
+          horario_real: now,
+          status,
+        });
+
+      if (error) {
+        feedback.error("Erro ao registrar dose");
+      } else {
+        if (status === "tomado") {
+          feedback.success("Dose marcada! Você está no caminho certo! 💪");
+        } else {
+          feedback.warning("Dose marcada como esquecida");
+        }
+        loadData();
+      }
     }
   };
 
@@ -308,39 +291,22 @@ const Dashboard = () => {
   const { total, tomados, pendentes } = getTotaisHoje();
 
   return (
-    <div className="w-full min-h-screen bg-background">
-      <div className="container mx-auto p-4 md:p-6 lg:p-8 max-w-5xl pb-8">
-        {/* Prompt de Notificações - Compacto e Responsivo */}
-        {showNotificationPrompt && notifications.isSupported && (
-          <Alert className="mb-6 animate-fade-in">
-            <Bell className="h-4 w-4 shrink-0" />
-            <AlertTitle>Ativar Notificações</AlertTitle>
-            <AlertDescription className="mt-2">
-              <p className="mb-3 text-sm">
-                Receba lembretes no horário certo para não esquecer seus medicamentos.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <Button 
-                  onClick={handleEnableNotifications}
-                  className="flex-1 sm:flex-none touch-manipulation"
-                  disabled={enablingNotifications}
-                  size="sm"
-                >
-                  {enablingNotifications ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Ativando...
-                    </>
-                  ) : (
-                    "Ativar"
-                  )}
+    <div className="min-h-screen bg-background p-4 pb-24">
+      <main className="max-w-4xl mx-auto space-y-6">
+        {/* Prompt de Notificações */}
+        {showNotificationPrompt && (
+          <Alert className="border-primary">
+            <Bell className="h-4 w-4" />
+            <AlertTitle>Ative as notificações!</AlertTitle>
+            <AlertDescription className="flex items-center justify-between gap-4">
+              <span className="text-sm">
+                Receba lembretes nos horários dos seus medicamentos, mesmo com o app fechado.
+              </span>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={handleEnableNotifications}>
+                  Ativar
                 </Button>
-                <Button 
-                  size="sm" 
-                  variant="ghost" 
-                  onClick={() => setShowNotificationPrompt(false)}
-                  className="flex-1 sm:flex-none touch-manipulation"
-                >
+                <Button size="sm" variant="ghost" onClick={() => setShowNotificationPrompt(false)}>
                   Agora não
                 </Button>
               </div>
@@ -348,10 +314,9 @@ const Dashboard = () => {
           </Alert>
         )}
 
-        <div className="space-y-6">
-          {/* Status das notificações */}
-          {notifications.isSupported && (
-            <div className="flex items-center justify-between bg-card border rounded-lg p-3 mb-6">
+        {/* Status das notificações */}
+        {notifications.isSupported && (
+          <div className="flex items-center justify-between bg-card border rounded-lg p-3">
             <div className="flex items-center gap-2">
               {notifications.permission === "granted" ? (
                 <>
@@ -374,16 +339,16 @@ const Dashboard = () => {
                 Ativar
               </Button>
             )}
-            </div>
-          )}
+          </div>
+        )}
 
-          <div className="bg-card border rounded-lg p-4 mb-6">
+        <div className="bg-card border rounded-lg p-4">
           <p className="text-base text-muted-foreground">
             📅 Hoje: <strong>{total}</strong> lembretes totais • ✅ <strong>{tomados}</strong> tomados • ⏰ <strong>{pendentes}</strong> pendentes
           </p>
-          </div>
+        </div>
 
-          <Card>
+        <Card>
           <CardHeader>
             <CardTitle className="text-2xl">Lembretes de Hoje</CardTitle>
             <CardDescription className="text-base">
@@ -420,24 +385,14 @@ const Dashboard = () => {
                         <Button
                           size="sm"
                           onClick={() => marcarDose(lembrete.id, "tomado")}
-                          className="bg-success hover:bg-success/90 touch-manipulation min-h-[44px]"
-                          disabled={processingDose === lembrete.id}
+                          className="bg-green-600 hover:bg-green-700"
                         >
-                          {processingDose === lembrete.id ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              <span className="hidden sm:inline">Salvando...</span>
-                            </>
-                          ) : (
-                            "Tomei"
-                          )}
+                          Tomei
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
                           onClick={() => marcarDose(lembrete.id, "esquecido")}
-                          className="touch-manipulation min-h-[44px]"
-                          disabled={processingDose === lembrete.id}
                         >
                           Esqueci
                         </Button>
@@ -448,9 +403,8 @@ const Dashboard = () => {
               })
             )}
           </CardContent>
-          </Card>
-        </div>
-      </div>
+        </Card>
+      </main>
     </div>
   );
 };
