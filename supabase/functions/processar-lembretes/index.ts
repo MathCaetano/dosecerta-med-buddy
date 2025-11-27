@@ -15,7 +15,7 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-    console.log('Iniciando processamento de lembretes...')
+    console.log('[CRON] Iniciando processamento de lembretes...')
 
     // 1. Criar histórico pendente para lembretes ativos que ainda não têm registro hoje
     const hoje = new Date().toISOString().split('T')[0]
@@ -92,14 +92,66 @@ Deno.serve(async (req) => {
       }
     }
 
-    console.log(`${marcadasEsquecidas} doses marcadas como esquecidas`)
+    console.log(`[CRON] ${marcadasEsquecidas} doses marcadas como esquecidas`)
+
+    // 3. ✨ NOVO: Enviar notificações push via FCM para lembretes próximos
+    const agoraFCM = new Date()
+    const daquiA15Min = new Date(agoraFCM.getTime() + 15 * 60 * 1000)
+    const horaAtualFCM = agoraFCM.toTimeString().split(' ')[0].substring(0, 5) // HH:MM
+    const hora15Min = daquiA15Min.toTimeString().split(' ')[0].substring(0, 5)
+
+    console.log(`[CRON] Verificando lembretes entre ${horaAtualFCM} e ${hora15Min}`)
+
+    let notificacoesEnviadas = 0
+    for (const lembrete of lembretesAtivos || []) {
+      const horarioLembrete = lembrete.horario
+
+      // Enviar notificação se o horário está nos próximos 15 minutos
+      if (horarioLembrete >= horaAtualFCM && horarioLembrete <= hora15Min) {
+        try {
+          // Buscar informações do medicamento
+          const { data: medicamento } = await supabase
+            .from('medicamentos')
+            .select('id, nome, dosagem')
+            .eq('id', lembrete.medicamento_id)
+            .single()
+
+          if (medicamento) {
+            // Chamar edge function para enviar via FCM
+            const { error: fcmError } = await supabase.functions.invoke('enviar-notificacao-fcm', {
+              body: {
+                notification: {
+                  lembreteId: lembrete.id,
+                  medicamentoNome: medicamento.nome,
+                  dosagem: medicamento.dosagem,
+                  horario: horarioLembrete,
+                  medicamentoId: medicamento.id
+                }
+              }
+            })
+
+            if (fcmError) {
+              console.error(`[CRON] Erro ao enviar FCM para lembrete ${lembrete.id}:`, fcmError)
+            } else {
+              notificacoesEnviadas++
+              console.log(`[CRON] Notificação FCM enviada: ${medicamento.nome} às ${horarioLembrete}`)
+            }
+          }
+        } catch (error) {
+          console.error(`[CRON] Erro ao processar notificação para ${lembrete.id}:`, error)
+        }
+      }
+    }
+
+    console.log(`[CRON] ${notificacoesEnviadas} notificações push enviadas via FCM`)
 
     return new Response(
       JSON.stringify({ 
         success: true, 
         message: 'Lembretes processados com sucesso',
         lembretesAtivos: lembretesAtivos?.length || 0,
-        dosesEsquecidas: marcadasEsquecidas
+        dosesEsquecidas: marcadasEsquecidas,
+        notificacoesEnviadas: notificacoesEnviadas
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
