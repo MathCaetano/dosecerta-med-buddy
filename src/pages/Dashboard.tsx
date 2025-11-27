@@ -5,11 +5,12 @@ import { User } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle, Clock, AlertCircle, Bell, BellOff } from "lucide-react";
+import { CheckCircle, Clock, AlertCircle, Bell, BellOff, Wifi } from "lucide-react";
 import { useFeedback } from "@/contexts/FeedbackContext";
 import { getDelayWarning } from "@/utils/gamification";
 import { useNotifications } from "@/hooks/useNotifications";
 import { useAnalytics } from "@/hooks/useAnalytics";
+import { useFCM } from "@/hooks/useFCM";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 interface Medicamento {
@@ -38,6 +39,7 @@ const Dashboard = () => {
   const navigate = useNavigate();
   const feedback = useFeedback();
   const notifications = useNotifications();
+  const fcm = useFCM();
   const { trackActionTaken } = useAnalytics();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -45,6 +47,7 @@ const Dashboard = () => {
   const [lembretes, setLembretes] = useState<Lembrete[]>([]);
   const [historico, setHistorico] = useState<HistoricoDose[]>([]);
   const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
+  const [showFCMPrompt, setShowFCMPrompt] = useState(false);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -73,6 +76,19 @@ const Dashboard = () => {
       setShowNotificationPrompt(true);
     }
   }, [notifications.isSupported, notifications.permission, lembretes.length]);
+
+  // Verificar se deve solicitar FCM (após notificações básicas)
+  useEffect(() => {
+    if (
+      fcm.isSupported && 
+      !fcm.isRegistered && 
+      notifications.permission === "granted" &&
+      lembretes.length > 0
+    ) {
+      // Mostrar prompt de FCM após notificações básicas ativadas
+      setShowFCMPrompt(true);
+    }
+  }, [fcm.isSupported, fcm.isRegistered, notifications.permission, lembretes.length]);
 
   const loadData = async () => {
     setLoading(true);
@@ -179,6 +195,15 @@ const Dashboard = () => {
       }
     } else {
       feedback.warning("Notificações bloqueadas. Você pode ativar nas configurações do navegador.");
+    }
+  };
+
+  // Habilitar push notifications (FCM)
+  const handleEnableFCM = async () => {
+    const success = await fcm.registerFCM();
+    
+    if (success) {
+      setShowFCMPrompt(false);
     }
   };
 
@@ -306,14 +331,14 @@ const Dashboard = () => {
   return (
     <div className="min-h-screen bg-background p-4 pb-24">
       <main className="max-w-4xl mx-auto space-y-6">
-        {/* Prompt de Notificações */}
+        {/* Prompt de Notificações Básicas */}
         {showNotificationPrompt && (
           <Alert className="border-primary">
             <Bell className="h-4 w-4" />
             <AlertTitle>Ative as notificações!</AlertTitle>
             <AlertDescription className="flex items-center justify-between gap-4">
               <span className="text-sm">
-                Receba lembretes nos horários dos seus medicamentos, mesmo com o app fechado.
+                Receba lembretes nos horários dos seus medicamentos.
               </span>
               <div className="flex gap-2">
                 <Button size="sm" onClick={handleEnableNotifications}>
@@ -327,30 +352,93 @@ const Dashboard = () => {
           </Alert>
         )}
 
+        {/* Prompt de Push Notifications (FCM) */}
+        {showFCMPrompt && (
+          <Alert className="border-green-500 bg-green-50 dark:bg-green-900/20">
+            <Wifi className="h-4 w-4 text-green-600" />
+            <AlertTitle className="text-green-900 dark:text-green-100">
+              ✨ Notificações Push Avançadas
+            </AlertTitle>
+            <AlertDescription className="flex items-center justify-between gap-4">
+              <span className="text-sm text-green-800 dark:text-green-200">
+                Ative para receber notificações <strong>mesmo com o app completamente fechado</strong>. 
+                Garantia de 100% de entrega via servidor!
+              </span>
+              <div className="flex gap-2">
+                <Button 
+                  size="sm" 
+                  onClick={handleEnableFCM}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  Ativar Push
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setShowFCMPrompt(false)}>
+                  Depois
+                </Button>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Status das notificações */}
         {notifications.isSupported && (
-          <div className="flex items-center justify-between bg-card border rounded-lg p-3">
-            <div className="flex items-center gap-2">
-              {notifications.permission === "granted" ? (
-                <>
-                  <Bell className="h-4 w-4 text-green-600" />
-                  <span className="text-sm text-muted-foreground">
-                    Notificações ativas
-                  </span>
-                </>
-              ) : (
-                <>
-                  <BellOff className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">
-                    Notificações desativadas
-                  </span>
-                </>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between bg-card border rounded-lg p-3">
+              <div className="flex items-center gap-2">
+                {notifications.permission === "granted" ? (
+                  <>
+                    <Bell className="h-4 w-4 text-green-600" />
+                    <span className="text-sm text-muted-foreground">
+                      Notificações ativas
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <BellOff className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">
+                      Notificações desativadas
+                    </span>
+                  </>
+                )}
+              </div>
+              {notifications.permission !== "granted" && (
+                <Button size="sm" variant="outline" onClick={handleEnableNotifications}>
+                  Ativar
+                </Button>
               )}
             </div>
-            {notifications.permission !== "granted" && (
-              <Button size="sm" variant="outline" onClick={handleEnableNotifications}>
-                Ativar
-              </Button>
+
+            {/* Status FCM */}
+            {fcm.isSupported && notifications.permission === "granted" && (
+              <div className="flex items-center justify-between bg-card border rounded-lg p-3">
+                <div className="flex items-center gap-2">
+                  {fcm.isRegistered ? (
+                    <>
+                      <Wifi className="h-4 w-4 text-green-600" />
+                      <span className="text-sm text-muted-foreground">
+                        Push notifications ativas
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Wifi className="h-4 w-4 text-orange-600" />
+                      <span className="text-sm text-muted-foreground">
+                        Push notifications desativadas
+                      </span>
+                    </>
+                  )}
+                </div>
+                {!fcm.isRegistered && (
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={handleEnableFCM}
+                    className="border-green-600 text-green-600 hover:bg-green-50"
+                  >
+                    Ativar Push
+                  </Button>
+                )}
+              </div>
             )}
           </div>
         )}
