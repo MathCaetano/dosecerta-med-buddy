@@ -14,6 +14,39 @@ export type Database = {
   }
   public: {
     Tables: {
+      fcm_tokens: {
+        Row: {
+          created_at: string
+          dispositivo: string | null
+          id: string
+          plataforma: string | null
+          token: string
+          ultimo_uso: string
+          updated_at: string
+          usuario_id: string
+        }
+        Insert: {
+          created_at?: string
+          dispositivo?: string | null
+          id?: string
+          plataforma?: string | null
+          token: string
+          ultimo_uso?: string
+          updated_at?: string
+          usuario_id: string
+        }
+        Update: {
+          created_at?: string
+          dispositivo?: string | null
+          id?: string
+          plataforma?: string | null
+          token?: string
+          ultimo_uso?: string
+          updated_at?: string
+          usuario_id?: string
+        }
+        Relationships: []
+      }
       historico_doses: {
         Row: {
           created_at: string | null
