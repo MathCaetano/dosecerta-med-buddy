@@ -300,6 +300,19 @@ self.addEventListener('message', (event) => {
       });
   }
 
+  // Suporte para limpar todas as notificações (usado no reset diário)
+  if (event.data.type === 'CLEAR_ALL_NOTIFICATIONS') {
+    const count = scheduledNotifications.size;
+    scheduledNotifications.clear();
+    
+    // Fechar todas as notificações visíveis
+    self.registration.getNotifications()
+      .then(notifications => {
+        notifications.forEach(n => n.close());
+        console.log(`[SW] All notifications cleared (${count} scheduled, ${notifications.length} visible)`);
+      });
+  }
+
   if (event.data.type === 'GET_SCHEDULED') {
     // Retornar notificações agendadas
     event.ports[0].postMessage({

@@ -317,6 +317,14 @@ class NotificationScheduler {
     const count = this.scheduledNotifications.size;
     this.scheduledNotifications.clear();
     this.saveToStorage();
+
+    // Notificar Service Worker para limpar também
+    if (this.serviceWorkerRegistration?.active) {
+      this.serviceWorkerRegistration.active.postMessage({
+        type: 'CLEAR_ALL_NOTIFICATIONS'
+      });
+    }
+
     console.log(`[Scheduler] ${count} notificações limpas`);
   }
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { User } from "@supabase/supabase-js";
@@ -11,6 +11,7 @@ import { getDelayWarning } from "@/utils/gamification";
 import { useNotifications } from "@/hooks/useNotifications";
 import { useAnalytics } from "@/hooks/useAnalytics";
 import { useFCM } from "@/hooks/useFCM";
+import { useDailyReset } from "@/hooks/useDailyReset";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 interface Medicamento {
@@ -48,6 +49,64 @@ const Dashboard = () => {
   const [historico, setHistorico] = useState<HistoricoDose[]>([]);
   const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
   const [showFCMPrompt, setShowFCMPrompt] = useState(false);
+
+  // Função interna de carregamento (sem state loading para evitar flickering no reset)
+  const loadDataInternal = useCallback(async () => {
+    // Carregar medicamentos
+    const { data: medsData } = await supabase
+      .from("medicamentos")
+      .select("*")
+      .order("created_at", { ascending: false });
+    
+    if (medsData) setMedicamentos(medsData);
+
+    // Carregar lembretes ativos com informações do medicamento
+    const { data: lemData } = await supabase
+      .from("lembretes")
+      .select(`
+        *,
+        medicamentos!inner(nome, dosagem)
+      `)
+      .eq("ativo", true);
+    
+    if (lemData) {
+      setLembretes(lemData);
+
+      // Agendar notificações se já tem permissão
+      if (notifications.isInitialized) {
+        const lembretesFormatados = lemData.map((l: any) => ({
+          id: l.id,
+          medicamento_id: l.medicamento_id,
+          medicamento_nome: l.medicamentos.nome,
+          dosagem: l.medicamentos.dosagem,
+          horario: l.horario,
+          ativo: l.ativo
+        }));
+
+        await notifications.scheduleAllForToday(lembretesFormatados);
+      }
+    }
+
+    // Carregar histórico de hoje
+    const today = new Date().toISOString().split("T")[0];
+    const { data: histData } = await supabase
+      .from("historico_doses")
+      .select("*")
+      .eq("data", today);
+    
+    if (histData) {
+      setHistorico(histData as HistoricoDose[]);
+    }
+  }, [notifications.isInitialized]);
+
+  // Callback para quando o reset diário completar
+  const handleDailyResetComplete = useCallback(() => {
+    console.log("[Dashboard] Reset diário concluído, recarregando dados...");
+    loadDataInternal();
+  }, [loadDataInternal]);
+
+  // Hook de reset diário - executa automaticamente quando necessário
+  useDailyReset(user?.id || null, handleDailyResetComplete);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -92,69 +151,7 @@ const Dashboard = () => {
 
   const loadData = async () => {
     setLoading(true);
-    
-    // Carregar medicamentos
-    const { data: medsData } = await supabase
-      .from("medicamentos")
-      .select("*")
-      .order("created_at", { ascending: false });
-    
-    if (medsData) setMedicamentos(medsData);
-
-    // Carregar lembretes ativos com informações do medicamento
-    const { data: lemData } = await supabase
-      .from("lembretes")
-      .select(`
-        *,
-        medicamentos!inner(nome, dosagem)
-      `)
-      .eq("ativo", true);
-    
-    if (lemData) {
-      setLembretes(lemData);
-
-      // Agendar notificações se já tem permissão
-      if (notifications.isInitialized) {
-        const lembretesFormatados = lemData.map((l: any) => ({
-          id: l.id,
-          medicamento_id: l.medicamento_id,
-          medicamento_nome: l.medicamentos.nome,
-          dosagem: l.medicamentos.dosagem,
-          horario: l.horario,
-          ativo: l.ativo
-        }));
-
-        await notifications.scheduleAllForToday(lembretesFormatados);
-      }
-    }
-
-    // Carregar histórico de hoje
-    const today = new Date().toISOString().split("T")[0];
-    const { data: histData } = await supabase
-      .from("historico_doses")
-      .select("*")
-      .eq("data", today);
-    
-    // Se não há histórico para hoje, criar registros pendentes
-    if (!histData || histData.length === 0) {
-      if (lemData && lemData.length > 0) {
-        const historicoPendente = lemData.map((lembrete: any) => ({
-          lembrete_id: lembrete.id,
-          data: today,
-          status: 'pendente'
-        }));
-
-        const { data: novoHistorico } = await supabase
-          .from("historico_doses")
-          .insert(historicoPendente)
-          .select();
-
-        if (novoHistorico) setHistorico(novoHistorico as HistoricoDose[]);
-      }
-    } else {
-      setHistorico(histData as HistoricoDose[]);
-    }
-
+    await loadDataInternal();
     setLoading(false);
   };
 
