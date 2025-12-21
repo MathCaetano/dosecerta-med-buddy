@@ -5,26 +5,14 @@ import { User } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle, Clock, AlertCircle, Bell, BellOff, Wifi, Timer } from "lucide-react";
+import { CheckCircle, Clock, AlertCircle, Bell, BellOff, Wifi } from "lucide-react";
 import { useFeedback } from "@/contexts/FeedbackContext";
 import { getDelayWarning } from "@/utils/gamification";
 import { useNotifications } from "@/hooks/useNotifications";
 import { useAnalytics } from "@/hooks/useAnalytics";
 import { useFCM } from "@/hooks/useFCM";
 import { useDailyReset } from "@/hooks/useDailyReset";
-import { useExpiredDoseChecker } from "@/hooks/useExpiredDoseChecker";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { 
-  calculateDoseState, 
-  canTakeAction, 
-  getCurrentLocalDate,
-  getCurrentLocalTime,
-  getRemainingToleranceMinutes,
-  formatTimeRemaining,
-  getMinutesUntilScheduled,
-  DoseState,
-  DEFAULT_TOLERANCE_MINUTES
-} from "@/utils/doseTimeUtils";
 
 interface Medicamento {
   id: string;
@@ -61,7 +49,6 @@ const Dashboard = () => {
   const [historico, setHistorico] = useState<HistoricoDose[]>([]);
   const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
   const [showFCMPrompt, setShowFCMPrompt] = useState(false);
-  const [currentTime, setCurrentTime] = useState(new Date());
 
   // Função interna de carregamento (sem state loading para evitar flickering no reset)
   const loadDataInternal = useCallback(async () => {
@@ -100,8 +87,8 @@ const Dashboard = () => {
       }
     }
 
-    // Carregar histórico de hoje usando timezone local
-    const today = getCurrentLocalDate();
+    // Carregar histórico de hoje
+    const today = new Date().toISOString().split("T")[0];
     const { data: histData } = await supabase
       .from("historico_doses")
       .select("*")
@@ -120,9 +107,6 @@ const Dashboard = () => {
 
   // Hook de reset diário - executa automaticamente quando necessário
   useDailyReset(user?.id || null, handleDailyResetComplete);
-
-  // Hook para verificar doses expiradas e marcá-las como esquecidas
-  useExpiredDoseChecker(user?.id || null, loadDataInternal);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -143,15 +127,6 @@ const Dashboard = () => {
 
     return () => subscription.unsubscribe();
   }, [navigate]);
-
-  // Atualizar currentTime a cada 30 segundos para recalcular estados
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 30000); // Atualiza a cada 30 segundos
-
-    return () => clearInterval(interval);
-  }, []);
 
   // Verificar e solicitar permissão de notificações
   useEffect(() => {
@@ -230,8 +205,8 @@ const Dashboard = () => {
   };
 
   const marcarDose = async (lembreteId: string, status: "tomado" | "esquecido") => {
-    const today = getCurrentLocalDate();
-    const now = getCurrentLocalTime();
+    const today = new Date().toISOString().split("T")[0];
+    const now = new Date().toTimeString().split(" ")[0];
     const lembrete = lembretes.find(l => l.id === lembreteId);
     const horarioLembrete = lembrete?.horario || "";
     
@@ -297,17 +272,10 @@ const Dashboard = () => {
     }
   };
 
-  /**
-   * Obtém o status do banco e calcula o estado lógico real
-   * considerando horário atual e janela de tolerância
-   */
-  const getLembreteStatus = (lembreteId: string, horario: string): DoseState => {
-    const today = getCurrentLocalDate();
+  const getLembreteStatus = (lembreteId: string) => {
+    const today = new Date().toISOString().split("T")[0];
     const hist = historico.find(h => h.lembrete_id === lembreteId && h.data === today);
-    const dbStatus = (hist?.status as "tomado" | "esquecido" | "pendente") || "pendente";
-    
-    // Calcular estado real baseado no horário
-    return calculateDoseState(horario, dbStatus, DEFAULT_TOLERANCE_MINUTES);
+    return hist?.status || "pendente";
   };
 
   const getMedicamentoNome = (medicamentoId: string) => {
@@ -315,62 +283,36 @@ const Dashboard = () => {
     return med ? `${med.nome} (${med.dosagem})` : "Medicamento";
   };
 
-  const getStatusIcon = (status: DoseState) => {
+  const getStatusIcon = (status: string) => {
     switch (status) {
       case "tomado":
         return <CheckCircle className="h-5 w-5 text-green-600" />;
       case "esquecido":
         return <AlertCircle className="h-5 w-5 text-red-600" />;
-      case "em_janela":
-        return <Timer className="h-5 w-5 text-orange-600" />;
       default:
         return <Clock className="h-5 w-5 text-blue-600" />;
     }
   };
 
-  const getStatusBadge = (status: DoseState, horario: string) => {
+  const getStatusBadge = (status: string) => {
     const variants: Record<string, string> = {
       tomado: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
       esquecido: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
       pendente: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
-      em_janela: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
-    };
-
-    const getLabel = () => {
-      switch (status) {
-        case "tomado":
-          return "✓ Tomado";
-        case "esquecido":
-          return "Esquecido";
-        case "em_janela":
-          const remaining = getRemainingToleranceMinutes(horario);
-          return `⏳ ${formatTimeRemaining(remaining)} restantes`;
-        case "pendente":
-          const minutesUntil = getMinutesUntilScheduled(horario);
-          if (minutesUntil > 0) {
-            return `⏰ em ${formatTimeRemaining(minutesUntil)}`;
-          }
-          return "⏰ Pendente";
-        default:
-          return "⏰ Pendente";
-      }
     };
 
     return (
       <Badge className={variants[status] || variants.pendente}>
-        {getLabel()}
+        {status === "tomado" ? "✓ Tomado" : status === "esquecido" ? "Esquecido" : "⏰ Pendente"}
       </Badge>
     );
   };
 
   const getTotaisHoje = () => {
     const total = lembretes.length;
-    const tomados = lembretes.filter(l => getLembreteStatus(l.id, l.horario) === "tomado").length;
-    const pendentesOuJanela = lembretes.filter(l => {
-      const status = getLembreteStatus(l.id, l.horario);
-      return status === "pendente" || status === "em_janela";
-    }).length;
-    return { total, tomados, pendentes: pendentesOuJanela };
+    const tomados = lembretes.filter(l => getLembreteStatus(l.id) === "tomado").length;
+    const pendentes = lembretes.filter(l => getLembreteStatus(l.id) === "pendente").length;
+    return { total, tomados, pendentes };
   };
 
   if (loading) {
@@ -518,11 +460,7 @@ const Dashboard = () => {
               </p>
             ) : (
               lembretes.map((lembrete) => {
-                const status = getLembreteStatus(lembrete.id, lembrete.horario);
-                const canAct = status === "em_janela";
-                const isPending = status === "pendente";
-                const isDecided = status === "tomado" || status === "esquecido";
-                
+                const status = getLembreteStatus(lembrete.id);
                 return (
                   <div
                     key={lembrete.id}
@@ -538,11 +476,9 @@ const Dashboard = () => {
                           {lembrete.horario} • {lembrete.periodo}
                         </p>
                       </div>
-                      {getStatusBadge(status, lembrete.horario)}
+                      {getStatusBadge(status)}
                     </div>
-                    
-                    {/* Botões ativos apenas na janela de ação */}
-                    {canAct && (
+                    {status === "pendente" && (
                       <div className="flex gap-2 ml-4">
                         <Button
                           size="sm"
@@ -555,27 +491,6 @@ const Dashboard = () => {
                           size="sm"
                           variant="outline"
                           onClick={() => marcarDose(lembrete.id, "esquecido")}
-                        >
-                          Esqueci
-                        </Button>
-                      </div>
-                    )}
-                    
-                    {/* Botões desabilitados antes do horário */}
-                    {isPending && (
-                      <div className="flex gap-2 ml-4">
-                        <Button
-                          size="sm"
-                          disabled
-                          className="bg-gray-400 cursor-not-allowed opacity-50"
-                        >
-                          Tomei
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled
-                          className="cursor-not-allowed opacity-50"
                         >
                           Esqueci
                         </Button>
