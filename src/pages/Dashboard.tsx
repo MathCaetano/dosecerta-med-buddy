@@ -210,10 +210,32 @@ const Dashboard = () => {
     const lembrete = lembretes.find(l => l.id === lembreteId);
     const horarioLembrete = lembrete?.horario || "";
     
+    // ✅ VALIDAÇÃO DE TEMPO: Não permitir marcar como esquecido antes do horário
+    if (status === "esquecido" && horarioLembrete) {
+      const [hours, minutes] = horarioLembrete.split(":").map(Number);
+      const horarioMedicamento = new Date();
+      horarioMedicamento.setHours(hours, minutes, 0, 0);
+      
+      const toleranciaMs = 30 * 60 * 1000; // 30 minutos
+      const horarioComTolerancia = new Date(horarioMedicamento.getTime() + toleranciaMs);
+      
+      if (new Date() < horarioComTolerancia) {
+        feedback.warning("Ainda não passou o horário do medicamento. Aguarde para marcar como esquecido.");
+        console.log(`[AUDIT] Tentativa de marcar como esquecido antes do horário: ${lembreteId}`);
+        return;
+      }
+    }
+    
     // Verificar se já existe registro para hoje
     const existing = historico.find(h => h.lembrete_id === lembreteId && h.data === today);
 
     if (existing) {
+      // ✅ Se já está como "tomado", não permitir mudar para "esquecido"
+      if (existing.status === "tomado" && status === "esquecido") {
+        feedback.info("Esta dose já foi marcada como tomada.");
+        return;
+      }
+      
       const { error } = await supabase
         .from("historico_doses")
         .update({ status, horario_real: now })
@@ -245,14 +267,20 @@ const Dashboard = () => {
         loadData();
       }
     } else {
+      // ✅ Usar upsert para evitar duplicatas (caso raro de race condition)
       const { error } = await supabase
         .from("historico_doses")
-        .insert({
-          lembrete_id: lembreteId,
-          data: today,
-          horario_real: now,
-          status,
-        });
+        .upsert(
+          {
+            lembrete_id: lembreteId,
+            data: today,
+            horario_real: now,
+            status,
+          },
+          {
+            onConflict: "lembrete_id,data",
+          }
+        );
 
       if (error) {
         feedback.error("Erro ao registrar dose");

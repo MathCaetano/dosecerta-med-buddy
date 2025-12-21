@@ -696,6 +696,49 @@ Para dúvidas ou problemas:
 
 ---
 
+## 🔄 ATUALIZAÇÃO: 21 de Dezembro de 2025
+
+### 🚨 PROBLEMA CRÍTICO DETECTADO E CORRIGIDO
+
+**Duplicatas Massivas no Histórico de Doses**
+
+Durante auditoria automática, foi detectado que a tabela `historico_doses` continha **até 932 registros duplicados por lembrete/dia**, causando:
+- Estados inconsistentes (mistura de "pendente" e "esquecido")
+- Potencial exibição incorreta na UI
+- Desperdício de espaço no banco
+
+**Causa Raiz:**
+- Hook `useDailyReset` não tinha proteção contra duplicatas
+- Falta de constraint UNIQUE na tabela
+
+### ✅ CORREÇÕES APLICADAS
+
+1. **Migração de Banco de Dados:**
+   - Removidas todas as duplicatas (mantido registro mais importante)
+   - Adicionado `CONSTRAINT historico_doses_lembrete_data_unique UNIQUE (lembrete_id, data)`
+   - Criados índices para performance
+
+2. **Hook useDailyReset Aprimorado:**
+   - Usa UPSERT com `onConflict: "lembrete_id,data"`
+   - Sistema de auditoria interna com `logAudit()`
+   - Debounce para evitar verificações repetidas
+   - Função `validateTimeForStatus()` para validar horários
+
+3. **Dashboard com Validação de Tempo:**
+   - Impede marcar como "esquecido" antes do horário + 30min tolerância
+   - Impede mudar de "tomado" para "esquecido"
+   - Usa UPSERT para evitar race conditions
+
+### 📊 RESULTADO
+
+| Métrica | Antes | Depois |
+|---------|-------|--------|
+| Registros por lembrete/dia | Até 932 | Exatamente 1 |
+| Duplicatas | Milhares | 0 |
+| Falsos "esquecido" | Possível | Impossível |
+
+---
+
 **Auditoria concluída com sucesso! ✅**
 
 *Sistema pronto para uso em produção.*
