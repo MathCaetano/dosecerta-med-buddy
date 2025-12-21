@@ -49,7 +49,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 2. Marcar como esquecido doses pendentes cujo horário passou há mais de 30 minutos
+    // 2. Marcar como esquecido doses pendentes cujo horário passou há mais de 60 minutos (tolerância)
+    // REGRA CRÍTICA: Nunca marcar como esquecido antes do horário + tolerância
+    const TOLERANCE_MINUTES = 60 // Tolerância de 60 minutos conforme especificado
     const agora = new Date()
     const horaAtual = agora.toTimeString().split(' ')[0].substring(0, 5) // HH:MM
 
@@ -68,15 +70,21 @@ Deno.serve(async (req) => {
       throw pendentesError
     }
 
-    console.log(`Encontradas ${dosesPendentes?.length || 0} doses pendentes`)
+    console.log(`[CRON] Encontradas ${dosesPendentes?.length || 0} doses pendentes, tolerância: ${TOLERANCE_MINUTES} minutos`)
 
     let marcadasEsquecidas = 0
     for (const dose of dosesPendentes || []) {
       const lembrete = dose.lembretes as any
       const horarioLembrete = lembrete.horario
       const [hora, minuto] = horarioLembrete.split(':').map(Number)
-      const horarioLimite = new Date(agora)
-      horarioLimite.setHours(hora, minuto + 30, 0, 0)
+      
+      // Criar datetime do horário do lembrete para HOJE
+      const horarioDateTime = new Date(agora)
+      horarioDateTime.setHours(hora, minuto, 0, 0)
+      
+      // Horário limite = horário + 60 minutos de tolerância
+      const horarioLimite = new Date(horarioDateTime)
+      horarioLimite.setMinutes(horarioLimite.getMinutes() + TOLERANCE_MINUTES)
 
       if (agora > horarioLimite) {
         const { error: updateError } = await supabase
