@@ -1,11 +1,11 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { User } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle, Clock, AlertCircle, Bell, BellOff, Wifi } from "lucide-react";
+import { CheckCircle, Clock, AlertCircle, Bell, BellOff, Wifi, Timer } from "lucide-react";
 import { useFeedback } from "@/contexts/FeedbackContext";
 import { getDelayWarning } from "@/utils/gamification";
 import { useNotifications } from "@/hooks/useNotifications";
@@ -13,7 +13,7 @@ import { useAnalytics } from "@/hooks/useAnalytics";
 import { useFCM } from "@/hooks/useFCM";
 import { useDailyReset } from "@/hooks/useDailyReset";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-
+import { getDisplayStatus, shouldAutoMarkAsForgotten } from "@/utils/doseTimeLogic";
 interface Medicamento {
   id: string;
   nome: string;
@@ -272,7 +272,67 @@ const Dashboard = () => {
     }
   };
 
-  const getLembreteStatus = (lembreteId: string) => {
+  // Ref para controlar o intervalo de atualização
+  const updateIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Estado para forçar re-render quando o tempo muda
+  const [, setForceUpdate] = useState(0);
+
+  // Atualizar a cada 30 segundos para recalcular estados temporais
+  useEffect(() => {
+    updateIntervalRef.current = setInterval(() => {
+      setForceUpdate(prev => prev + 1);
+    }, 30000); // Atualizar a cada 30 segundos
+
+    return () => {
+      if (updateIntervalRef.current) {
+        clearInterval(updateIntervalRef.current);
+      }
+    };
+  }, []);
+
+  // Auto-marcar doses expiradas como esquecidas
+  useEffect(() => {
+    const checkAndMarkExpired = async () => {
+      const today = new Date().toISOString().split("T")[0];
+      
+      for (const lembrete of lembretes) {
+        const hist = historico.find(h => h.lembrete_id === lembrete.id && h.data === today);
+        const dbStatus = hist?.status || "pendente";
+        
+        // Verificar se deve marcar como esquecido
+        if (shouldAutoMarkAsForgotten(lembrete.horario, dbStatus)) {
+          console.log(`[Dashboard] Auto-marcando ${lembrete.id} como esquecido (expirou tolerância)`);
+          
+          if (hist) {
+            // Atualizar registro existente
+            await supabase
+              .from("historico_doses")
+              .update({ status: "esquecido" })
+              .eq("id", hist.id);
+          } else {
+            // Criar novo registro
+            await supabase
+              .from("historico_doses")
+              .insert({
+                lembrete_id: lembrete.id,
+                data: today,
+                status: "esquecido",
+              });
+          }
+        }
+      }
+      
+      // Recarregar dados após auto-marcação
+      loadDataInternal();
+    };
+
+    if (lembretes.length > 0) {
+      checkAndMarkExpired();
+    }
+  }, [lembretes, historico, loadDataInternal]);
+
+  const getLembreteDbStatus = (lembreteId: string) => {
     const today = new Date().toISOString().split("T")[0];
     const hist = historico.find(h => h.lembrete_id === lembreteId && h.data === today);
     return hist?.status || "pendente";
@@ -283,35 +343,45 @@ const Dashboard = () => {
     return med ? `${med.nome} (${med.dosagem})` : "Medicamento";
   };
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
+  const getStatusIcon = (badgeVariant: string) => {
+    switch (badgeVariant) {
       case "tomado":
         return <CheckCircle className="h-5 w-5 text-green-600" />;
       case "esquecido":
         return <AlertCircle className="h-5 w-5 text-red-600" />;
+      case "aguardando":
+        return <Timer className="h-5 w-5 text-muted-foreground" />;
       default:
         return <Clock className="h-5 w-5 text-blue-600" />;
     }
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (badgeVariant: string, statusMessage: string) => {
     const variants: Record<string, string> = {
       tomado: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
       esquecido: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
       pendente: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+      aguardando: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300",
+    };
+
+    const labels: Record<string, string> = {
+      tomado: "✓ Tomado",
+      esquecido: "✗ Esquecido",
+      pendente: "🔔 Agir agora",
+      aguardando: `⏰ ${statusMessage}`,
     };
 
     return (
-      <Badge className={variants[status] || variants.pendente}>
-        {status === "tomado" ? "✓ Tomado" : status === "esquecido" ? "Esquecido" : "⏰ Pendente"}
+      <Badge className={variants[badgeVariant] || variants.pendente}>
+        {labels[badgeVariant] || statusMessage}
       </Badge>
     );
   };
 
   const getTotaisHoje = () => {
     const total = lembretes.length;
-    const tomados = lembretes.filter(l => getLembreteStatus(l.id) === "tomado").length;
-    const pendentes = lembretes.filter(l => getLembreteStatus(l.id) === "pendente").length;
+    const tomados = lembretes.filter(l => getLembreteDbStatus(l.id) === "tomado").length;
+    const pendentes = lembretes.filter(l => getLembreteDbStatus(l.id) === "pendente").length;
     return { total, tomados, pendentes };
   };
 
@@ -460,14 +530,19 @@ const Dashboard = () => {
               </p>
             ) : (
               lembretes.map((lembrete) => {
-                const status = getLembreteStatus(lembrete.id);
+                const dbStatus = getLembreteDbStatus(lembrete.id);
+                const { showButtons, statusMessage, badgeVariant } = getDisplayStatus(
+                  lembrete.horario,
+                  dbStatus
+                );
+                
                 return (
                   <div
                     key={lembrete.id}
                     className="flex items-center justify-between p-4 border rounded-lg bg-card"
                   >
                     <div className="flex items-center gap-4 flex-1">
-                      {getStatusIcon(status)}
+                      {getStatusIcon(badgeVariant)}
                       <div className="flex-1">
                         <p className="font-medium text-base">
                           {getMedicamentoNome(lembrete.medicamento_id)}
@@ -476,9 +551,9 @@ const Dashboard = () => {
                           {lembrete.horario} • {lembrete.periodo}
                         </p>
                       </div>
-                      {getStatusBadge(status)}
+                      {getStatusBadge(badgeVariant, statusMessage)}
                     </div>
-                    {status === "pendente" && (
+                    {showButtons && (
                       <div className="flex gap-2 ml-4">
                         <Button
                           size="sm"
