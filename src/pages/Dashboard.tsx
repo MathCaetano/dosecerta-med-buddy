@@ -5,14 +5,13 @@ import { User } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle, Clock, AlertCircle, Bell, BellOff, Wifi, TimerOff } from "lucide-react";
+import { CheckCircle, Clock, AlertCircle, Bell, BellOff, Wifi } from "lucide-react";
 import { useFeedback } from "@/contexts/FeedbackContext";
 import { getDelayWarning } from "@/utils/gamification";
 import { useNotifications } from "@/hooks/useNotifications";
 import { useAnalytics } from "@/hooks/useAnalytics";
 import { useFCM } from "@/hooks/useFCM";
 import { useDailyReset } from "@/hooks/useDailyReset";
-import { useExpiredDoseChecker, calculateDoseState, canMarkAsTaken, canMarkAsForgotten, type DoseState } from "@/hooks/useExpiredDoseChecker";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 interface Medicamento {
@@ -108,9 +107,6 @@ const Dashboard = () => {
 
   // Hook de reset diário - executa automaticamente quando necessário
   useDailyReset(user?.id || null, handleDailyResetComplete);
-
-  // Hook para verificar doses expiradas e marcar como esquecidas após tolerância de 60 min
-  useExpiredDoseChecker(user?.id || null, loadDataInternal);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -276,24 +272,10 @@ const Dashboard = () => {
     }
   };
 
-  /**
-   * Obtém o status da dose no banco de dados
-   */
-  const getLembreteStatusFromDB = (lembreteId: string): string => {
+  const getLembreteStatus = (lembreteId: string) => {
     const today = new Date().toISOString().split("T")[0];
     const hist = historico.find(h => h.lembrete_id === lembreteId && h.data === today);
     return hist?.status || "pendente";
-  };
-
-  /**
-   * Obtém o estado lógico calculado (considera horário + tolerância)
-   */
-  const getLembreteState = (lembreteId: string): DoseState => {
-    const lembrete = lembretes.find(l => l.id === lembreteId);
-    const statusBanco = getLembreteStatusFromDB(lembreteId);
-    
-    if (!lembrete) return "pendente";
-    return calculateDoseState(lembrete.horario, statusBanco);
   };
 
   const getMedicamentoNome = (medicamentoId: string) => {
@@ -301,49 +283,35 @@ const Dashboard = () => {
     return med ? `${med.nome} (${med.dosagem})` : "Medicamento";
   };
 
-  const getStatusIcon = (state: DoseState) => {
-    switch (state) {
+  const getStatusIcon = (status: string) => {
+    switch (status) {
       case "tomado":
         return <CheckCircle className="h-5 w-5 text-green-600" />;
       case "esquecido":
         return <AlertCircle className="h-5 w-5 text-red-600" />;
-      case "em_janela":
-        return <Clock className="h-5 w-5 text-orange-500 animate-pulse" />;
-      case "pendente":
       default:
         return <Clock className="h-5 w-5 text-blue-600" />;
     }
   };
 
-  const getStatusBadge = (state: DoseState, horario?: string) => {
-    const variants: Record<DoseState, string> = {
+  const getStatusBadge = (status: string) => {
+    const variants: Record<string, string> = {
       tomado: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
       esquecido: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
-      em_janela: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
       pendente: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
     };
 
-    const labels: Record<DoseState, string> = {
-      tomado: "✓ Tomado",
-      esquecido: "Esquecido",
-      em_janela: "⏰ Hora de tomar!",
-      pendente: "⏳ Aguardando",
-    };
-
     return (
-      <Badge className={variants[state]}>
-        {labels[state]}
+      <Badge className={variants[status] || variants.pendente}>
+        {status === "tomado" ? "✓ Tomado" : status === "esquecido" ? "Esquecido" : "⏰ Pendente"}
       </Badge>
     );
   };
 
   const getTotaisHoje = () => {
     const total = lembretes.length;
-    const tomados = lembretes.filter(l => getLembreteState(l.id) === "tomado").length;
-    const pendentes = lembretes.filter(l => {
-      const state = getLembreteState(l.id);
-      return state === "pendente" || state === "em_janela";
-    }).length;
+    const tomados = lembretes.filter(l => getLembreteStatus(l.id) === "tomado").length;
+    const pendentes = lembretes.filter(l => getLembreteStatus(l.id) === "pendente").length;
     return { total, tomados, pendentes };
   };
 
@@ -492,21 +460,14 @@ const Dashboard = () => {
               </p>
             ) : (
               lembretes.map((lembrete) => {
-                const doseState = getLembreteState(lembrete.id);
-                const statusBanco = getLembreteStatusFromDB(lembrete.id);
-                const showTomeiButton = canMarkAsTaken(lembrete.horario, statusBanco);
-                const showEsqueciButton = canMarkAsForgotten(lembrete.horario, statusBanco);
-                const isActionable = showTomeiButton || showEsqueciButton;
-                
+                const status = getLembreteStatus(lembrete.id);
                 return (
                   <div
                     key={lembrete.id}
-                    className={`flex items-center justify-between p-4 border rounded-lg bg-card ${
-                      doseState === "em_janela" ? "border-orange-400 ring-2 ring-orange-200" : ""
-                    }`}
+                    className="flex items-center justify-between p-4 border rounded-lg bg-card"
                   >
                     <div className="flex items-center gap-4 flex-1">
-                      {getStatusIcon(doseState)}
+                      {getStatusIcon(status)}
                       <div className="flex-1">
                         <p className="font-medium text-base">
                           {getMedicamentoNome(lembrete.medicamento_id)}
@@ -514,39 +475,25 @@ const Dashboard = () => {
                         <p className="text-sm text-muted-foreground">
                           {lembrete.horario} • {lembrete.periodo}
                         </p>
-                        {doseState === "pendente" && (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Aguardando horário...
-                          </p>
-                        )}
-                        {doseState === "em_janela" && (
-                          <p className="text-xs text-orange-600 mt-1 font-medium">
-                            Janela de ação aberta (60 min)
-                          </p>
-                        )}
                       </div>
-                      {getStatusBadge(doseState, lembrete.horario)}
+                      {getStatusBadge(status)}
                     </div>
-                    {isActionable && doseState !== "tomado" && doseState !== "esquecido" && (
+                    {status === "pendente" && (
                       <div className="flex gap-2 ml-4">
-                        {showTomeiButton && (
-                          <Button
-                            size="sm"
-                            onClick={() => marcarDose(lembrete.id, "tomado")}
-                            className="bg-green-600 hover:bg-green-700"
-                          >
-                            Tomei
-                          </Button>
-                        )}
-                        {showEsqueciButton && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => marcarDose(lembrete.id, "esquecido")}
-                          >
-                            Esqueci
-                          </Button>
-                        )}
+                        <Button
+                          size="sm"
+                          onClick={() => marcarDose(lembrete.id, "tomado")}
+                          className="bg-green-600 hover:bg-green-700"
+                        >
+                          Tomei
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => marcarDose(lembrete.id, "esquecido")}
+                        >
+                          Esqueci
+                        </Button>
                       </div>
                     )}
                   </div>
