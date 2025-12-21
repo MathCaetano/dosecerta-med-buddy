@@ -1,6 +1,7 @@
 import { useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { notificationScheduler } from "@/utils/notificationScheduler";
+import { getCurrentLocalDate } from "@/utils/doseTimeUtils";
 
 const STORAGE_KEY = "dosecerta_last_daily_reset";
 
@@ -13,6 +14,7 @@ const STORAGE_KEY = "dosecerta_last_daily_reset";
  * - Reagenda todas as notificações
  * - Funciona ao abrir o app e ao retornar do background
  * - Idempotente (seguro para rodar múltiplas vezes)
+ * - NÃO marca doses como esquecidas automaticamente
  */
 export const useDailyReset = (
   userId: string | null,
@@ -21,10 +23,10 @@ export const useDailyReset = (
   const isResettingRef = useRef(false);
 
   /**
-   * Obtém a data atual no formato YYYY-MM-DD
+   * Obtém a data atual no formato YYYY-MM-DD (timezone local)
    */
   const getCurrentDate = useCallback((): string => {
-    return new Date().toISOString().split("T")[0];
+    return getCurrentLocalDate();
   }, []);
 
   /**
@@ -51,6 +53,7 @@ export const useDailyReset = (
 
   /**
    * Inicializa os registros de doses pendentes para hoje
+   * Usa upsert para evitar duplicatas
    */
   const initializeDailyDoseStatus = useCallback(async (): Promise<boolean> => {
     if (!userId) return false;
@@ -81,36 +84,45 @@ export const useDailyReset = (
         return true;
       }
 
-      // Verificar quais já têm registro para hoje
+      // Buscar registros existentes para hoje (para não sobrescrever status já definidos)
       const lembreteIds = lembretes.map((l) => l.id);
       const { data: existingRecords } = await supabase
         .from("historico_doses")
-        .select("lembrete_id")
+        .select("lembrete_id, status")
         .eq("data", today)
         .in("lembrete_id", lembreteIds);
 
-      const existingIds = new Set(existingRecords?.map((r) => r.lembrete_id) || []);
+      // Mapear lembretes que já têm registro
+      const existingMap = new Map(
+        existingRecords?.map((r) => [r.lembrete_id, r.status]) || []
+      );
 
-      // Filtrar lembretes que precisam de novo registro
-      const lembretesNovos = lembretes.filter((l) => !existingIds.has(l.id));
+      // Filtrar apenas lembretes que NÃO têm registro para hoje
+      const lembretesNovos = lembretes.filter((l) => !existingMap.has(l.id));
 
       if (lembretesNovos.length === 0) {
         console.log("[DailyReset] Todos os lembretes já têm registro para hoje");
         return true;
       }
 
-      // Criar registros pendentes apenas para os novos
+      // Criar registros pendentes apenas para os novos (sem duplicar)
       const novosRegistros = lembretesNovos.map((lembrete) => ({
         lembrete_id: lembrete.id,
         data: today,
         status: "pendente",
       }));
 
+      // Usar insert com tratamento de conflito
       const { error: insertError } = await supabase
         .from("historico_doses")
         .insert(novosRegistros);
 
       if (insertError) {
+        // Se for erro de duplicata, ignorar (idempotência)
+        if (insertError.code === "23505") {
+          console.log("[DailyReset] Registros já existem (duplicata ignorada)");
+          return true;
+        }
         console.error("[DailyReset] Erro ao criar registros:", insertError);
         return false;
       }
