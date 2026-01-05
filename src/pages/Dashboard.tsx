@@ -17,7 +17,6 @@ import {
   getDoseStatus, 
   canPerformAction, 
   logDoseStatusAudit,
-  DEFAULT_TOLERANCE_MINUTES,
   type DoseStatusType,
   type DoseStatusResult
 } from "@/utils/doseStatus";
@@ -228,9 +227,9 @@ const Dashboard = () => {
   const getCalculatedDoseStatus = useCallback((lembreteId: string, horario: string): DoseStatusResult => {
     const today = new Date().toISOString().split("T")[0];
     const hist = historico.find(h => h.lembrete_id === lembreteId && h.data === today);
-    const savedStatus = hist?.status || null;
+    const savedStatus = hist?.status as 'tomado' | 'esquecido' | 'pendente' | 'agendado' | null || null;
     
-    return getDoseStatus(currentTime, horario, savedStatus, DEFAULT_TOLERANCE_MINUTES);
+    return getDoseStatus(currentTime, horario, savedStatus);
   }, [historico, currentTime]);
 
   /**
@@ -247,7 +246,7 @@ const Dashboard = () => {
     const savedStatus = existing?.status || null;
     
     // ✅ VALIDAÇÃO CENTRALIZADA: Usar função canPerformAction
-    const validation = canPerformAction(horarioLembrete, status, savedStatus, DEFAULT_TOLERANCE_MINUTES);
+    const validation = canPerformAction(horarioLembrete, status, savedStatus as 'tomado' | 'esquecido' | 'pendente' | 'agendado' | null);
     
     if (!validation.allowed) {
       feedback.warning(validation.reason || "Ação não permitida no momento.");
@@ -352,8 +351,9 @@ const Dashboard = () => {
         return <CheckCircle className="h-5 w-5 text-green-600" />;
       case "esquecido":
         return <AlertCircle className="h-5 w-5 text-red-600" />;
-      case "ativo":
+      case "pendente":
         return <AlertTriangle className="h-5 w-5 text-orange-500" />;
+      case "agendado":
       default:
         return <Clock className="h-5 w-5 text-blue-600" />;
     }
@@ -362,26 +362,38 @@ const Dashboard = () => {
   /**
    * ✅ Badge baseado no status calculado
    */
-  const getStatusBadge = (status: DoseStatusType, minutesUntilActive?: number) => {
+  const getStatusBadge = (status: DoseStatusType, minutesUntilWindow?: number) => {
     const variants: Record<DoseStatusType, string> = {
       tomado: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
       esquecido: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
-      ativo: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
-      pendente: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+      pendente: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
+      agendado: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
     };
 
-    const labels: Record<DoseStatusType, string> = {
-      tomado: "✓ Tomado",
-      esquecido: "Esquecido",
-      ativo: "🔔 Tome agora!",
-      pendente: minutesUntilActive !== undefined && minutesUntilActive > 0 
-        ? `⏰ Em ${minutesUntilActive} min` 
-        : "⏰ Pendente",
+    const getLabel = () => {
+      switch (status) {
+        case "tomado":
+          return "✅ Tomado";
+        case "esquecido":
+          return "❌ Esquecido";
+        case "pendente":
+          return "🔔 Tome agora!";
+        case "agendado":
+          if (minutesUntilWindow !== undefined && minutesUntilWindow > 0) {
+            if (minutesUntilWindow < 60) return `⏰ Em ${minutesUntilWindow} min`;
+            const hours = Math.floor(minutesUntilWindow / 60);
+            const mins = minutesUntilWindow % 60;
+            return mins > 0 ? `⏰ Em ${hours}h ${mins}m` : `⏰ Em ${hours}h`;
+          }
+          return "📅 Agendado";
+        default:
+          return status;
+      }
     };
 
     return (
-      <Badge className={variants[status] || variants.pendente}>
-        {labels[status]}
+      <Badge className={variants[status] || variants.agendado}>
+        {getLabel()}
       </Badge>
     );
   };
@@ -392,8 +404,8 @@ const Dashboard = () => {
   const getTotaisHoje = useMemo(() => {
     const total = lembretes.length;
     let tomados = 0;
-    let pendentes = 0;
-    let ativos = 0;
+    let pendentes = 0;  // Doses prontas para tomar (dentro da janela)
+    let agendados = 0;  // Doses futuras (antes da janela)
     let esquecidos = 0;
 
     lembretes.forEach(l => {
@@ -401,12 +413,12 @@ const Dashboard = () => {
       switch (result.status) {
         case "tomado": tomados++; break;
         case "pendente": pendentes++; break;
-        case "ativo": ativos++; break;
+        case "agendado": agendados++; break;
         case "esquecido": esquecidos++; break;
       }
     });
 
-    return { total, tomados, pendentes, ativos, esquecidos };
+    return { total, tomados, pendentes, agendados, esquecidos };
   }, [lembretes, getCalculatedDoseStatus]);
 
   if (loading) {
@@ -417,7 +429,7 @@ const Dashboard = () => {
     );
   }
 
-  const { total, tomados, pendentes, ativos, esquecidos } = getTotaisHoje;
+  const { total, tomados, pendentes, agendados, esquecidos } = getTotaisHoje;
 
   return (
     <div className="min-h-screen bg-background p-4 pb-24">
@@ -539,8 +551,8 @@ const Dashboard = () => {
           <p className="text-base text-muted-foreground">
             📅 Hoje: <strong>{total}</strong> lembretes • 
             ✅ <strong>{tomados}</strong> tomados • 
-            🔔 <strong>{ativos}</strong> ativos • 
-            ⏰ <strong>{pendentes}</strong> pendentes
+            🔔 <strong>{pendentes}</strong> prontos • 
+            ⏰ <strong>{agendados}</strong> agendados
             {esquecidos > 0 && <> • ❌ <strong>{esquecidos}</strong> esquecidos</>}
           </p>
         </div>
@@ -561,7 +573,7 @@ const Dashboard = () => {
               lembretes.map((lembrete) => {
                 // ✅ Usar função central para calcular status
                 const doseResult = getCalculatedDoseStatus(lembrete.id, lembrete.horario);
-                const { status, canMarkTaken, canMarkForgotten, minutesUntilActive } = doseResult;
+                const { status, canMarkTaken, canMarkForgotten, minutesUntilWindow } = doseResult;
                 
                 return (
                   <div
@@ -578,11 +590,11 @@ const Dashboard = () => {
                           {lembrete.horario} • {lembrete.periodo}
                         </p>
                       </div>
-                      {getStatusBadge(status, minutesUntilActive)}
+                      {getStatusBadge(status, minutesUntilWindow)}
                     </div>
                     
-                    {/* ✅ BOTÕES: Só aparecem quando status é ATIVO */}
-                    {status === "ativo" && (
+                    {/* ✅ BOTÕES: Só aparecem quando status é PENDENTE (dentro da janela de ação) */}
+                    {status === "pendente" && (
                       <div className="flex gap-2 ml-4">
                         {canMarkTaken && (
                           <Button
