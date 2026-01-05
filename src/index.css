@@ -171,4 +171,14 @@ All colors MUST be HSL.
   .smooth-transition {
     @apply transition-all duration-300 ease-in-out;
   }
+  
+  /* Hide scrollbar for time picker */
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
 }
