@@ -1,11 +1,11 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { User } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle, Clock, AlertCircle, Bell, BellOff, Wifi } from "lucide-react";
+import { CheckCircle, Clock, AlertCircle, Bell, BellOff, Wifi, AlertTriangle } from "lucide-react";
 import { useFeedback } from "@/contexts/FeedbackContext";
 import { getDelayWarning } from "@/utils/gamification";
 import { useNotifications } from "@/hooks/useNotifications";
@@ -13,6 +13,14 @@ import { useAnalytics } from "@/hooks/useAnalytics";
 import { useFCM } from "@/hooks/useFCM";
 import { useDailyReset } from "@/hooks/useDailyReset";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { 
+  getDoseStatus, 
+  canPerformAction, 
+  logDoseStatusAudit,
+  DEFAULT_TOLERANCE_MINUTES,
+  type DoseStatusType,
+  type DoseStatusResult
+} from "@/utils/doseStatus";
 
 interface Medicamento {
   id: string;
@@ -49,6 +57,15 @@ const Dashboard = () => {
   const [historico, setHistorico] = useState<HistoricoDose[]>([]);
   const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
   const [showFCMPrompt, setShowFCMPrompt] = useState(false);
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  // ✅ Atualizar o tempo a cada segundo para recalcular estados
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Função interna de carregamento (sem state loading para evitar flickering no reset)
   const loadDataInternal = useCallback(async () => {
@@ -204,38 +221,54 @@ const Dashboard = () => {
     }
   };
 
+  /**
+   * ✅ FUNÇÃO CENTRAL: Obter status calculado de uma dose
+   * Usa a função getDoseStatus do módulo centralizado
+   */
+  const getCalculatedDoseStatus = useCallback((lembreteId: string, horario: string): DoseStatusResult => {
+    const today = new Date().toISOString().split("T")[0];
+    const hist = historico.find(h => h.lembrete_id === lembreteId && h.data === today);
+    const savedStatus = hist?.status || null;
+    
+    return getDoseStatus(currentTime, horario, savedStatus, DEFAULT_TOLERANCE_MINUTES);
+  }, [historico, currentTime]);
+
+  /**
+   * ✅ Marcar dose com validação centralizada
+   */
   const marcarDose = async (lembreteId: string, status: "tomado" | "esquecido") => {
     const today = new Date().toISOString().split("T")[0];
     const now = new Date().toTimeString().split(" ")[0];
     const lembrete = lembretes.find(l => l.id === lembreteId);
     const horarioLembrete = lembrete?.horario || "";
     
-    // ✅ VALIDAÇÃO DE TEMPO: Não permitir marcar como esquecido antes do horário
-    if (status === "esquecido" && horarioLembrete) {
-      const [hours, minutes] = horarioLembrete.split(":").map(Number);
-      const horarioMedicamento = new Date();
-      horarioMedicamento.setHours(hours, minutes, 0, 0);
+    // Buscar status atual salvo
+    const existing = historico.find(h => h.lembrete_id === lembreteId && h.data === today);
+    const savedStatus = existing?.status || null;
+    
+    // ✅ VALIDAÇÃO CENTRALIZADA: Usar função canPerformAction
+    const validation = canPerformAction(horarioLembrete, status, savedStatus, DEFAULT_TOLERANCE_MINUTES);
+    
+    if (!validation.allowed) {
+      feedback.warning(validation.reason || "Ação não permitida no momento.");
       
-      const toleranciaMs = 30 * 60 * 1000; // 30 minutos
-      const horarioComTolerancia = new Date(horarioMedicamento.getTime() + toleranciaMs);
+      // Log de auditoria
+      console.log(`[AUDIT] Ação bloqueada: ${status} para ${lembreteId}`, {
+        horario: horarioLembrete,
+        savedStatus,
+        reason: validation.reason,
+        timestamp: new Date().toISOString()
+      });
       
-      if (new Date() < horarioComTolerancia) {
-        feedback.warning("Ainda não passou o horário do medicamento. Aguarde para marcar como esquecido.");
-        console.log(`[AUDIT] Tentativa de marcar como esquecido antes do horário: ${lembreteId}`);
-        return;
-      }
+      return;
     }
     
-    // Verificar se já existe registro para hoje
-    const existing = historico.find(h => h.lembrete_id === lembreteId && h.data === today);
+    // Log de auditoria antes da ação
+    const medicamento = medicamentos.find(m => m.id === lembrete?.medicamento_id);
+    const doseStatus = getCalculatedDoseStatus(lembreteId, horarioLembrete);
+    logDoseStatusAudit(lembreteId, medicamento?.nome || 'Desconhecido', doseStatus);
 
     if (existing) {
-      // ✅ Se já está como "tomado", não permitir mudar para "esquecido"
-      if (existing.status === "tomado" && status === "esquecido") {
-        feedback.info("Esta dose já foi marcada como tomada.");
-        return;
-      }
-      
       const { error } = await supabase
         .from("historico_doses")
         .update({ status, horario_real: now })
@@ -246,10 +279,12 @@ const Dashboard = () => {
       } else {
         // Rastrear ação se foi marcado como tomado
         if (status === "tomado") {
-          const medicamento = medicamentos.find(m => m.id === lembrete?.medicamento_id);
           if (medicamento && lembrete) {
             await trackActionTaken(lembrete.id, medicamento.id);
           }
+          
+          // Cancelar notificações para esta dose
+          await notifications.cancelNotification(lembreteId);
           
           const [horaLembrete, minutoLembrete] = horarioLembrete.split(":").map(Number);
           const [horaReal, minutoReal] = now.split(":").map(Number);
@@ -267,7 +302,7 @@ const Dashboard = () => {
         loadData();
       }
     } else {
-      // ✅ Usar upsert para evitar duplicatas (caso raro de race condition)
+      // ✅ Usar upsert para evitar duplicatas
       const { error } = await supabase
         .from("historico_doses")
         .upsert(
@@ -287,10 +322,13 @@ const Dashboard = () => {
       } else {
         // Rastrear ação se foi marcado como tomado
         if (status === "tomado") {
-          const medicamento = medicamentos.find(m => m.id === lembrete?.medicamento_id);
           if (medicamento && lembrete) {
             await trackActionTaken(lembrete.id, medicamento.id);
           }
+          
+          // Cancelar notificações para esta dose
+          await notifications.cancelNotification(lembreteId);
+          
           feedback.success("Dose marcada! Você está no caminho certo! 💪");
         } else {
           feedback.warning("Dose marcada como esquecida");
@@ -300,48 +338,76 @@ const Dashboard = () => {
     }
   };
 
-  const getLembreteStatus = (lembreteId: string) => {
-    const today = new Date().toISOString().split("T")[0];
-    const hist = historico.find(h => h.lembrete_id === lembreteId && h.data === today);
-    return hist?.status || "pendente";
-  };
-
   const getMedicamentoNome = (medicamentoId: string) => {
     const med = medicamentos.find(m => m.id === medicamentoId);
     return med ? `${med.nome} (${med.dosagem})` : "Medicamento";
   };
 
-  const getStatusIcon = (status: string) => {
+  /**
+   * ✅ Ícone baseado no status calculado
+   */
+  const getStatusIcon = (status: DoseStatusType) => {
     switch (status) {
       case "tomado":
         return <CheckCircle className="h-5 w-5 text-green-600" />;
       case "esquecido":
         return <AlertCircle className="h-5 w-5 text-red-600" />;
+      case "ativo":
+        return <AlertTriangle className="h-5 w-5 text-orange-500" />;
       default:
         return <Clock className="h-5 w-5 text-blue-600" />;
     }
   };
 
-  const getStatusBadge = (status: string) => {
-    const variants: Record<string, string> = {
+  /**
+   * ✅ Badge baseado no status calculado
+   */
+  const getStatusBadge = (status: DoseStatusType, minutesUntilActive?: number) => {
+    const variants: Record<DoseStatusType, string> = {
       tomado: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
       esquecido: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
+      ativo: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
       pendente: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+    };
+
+    const labels: Record<DoseStatusType, string> = {
+      tomado: "✓ Tomado",
+      esquecido: "Esquecido",
+      ativo: "🔔 Tome agora!",
+      pendente: minutesUntilActive !== undefined && minutesUntilActive > 0 
+        ? `⏰ Em ${minutesUntilActive} min` 
+        : "⏰ Pendente",
     };
 
     return (
       <Badge className={variants[status] || variants.pendente}>
-        {status === "tomado" ? "✓ Tomado" : status === "esquecido" ? "Esquecido" : "⏰ Pendente"}
+        {labels[status]}
       </Badge>
     );
   };
 
-  const getTotaisHoje = () => {
+  /**
+   * ✅ Totais calculados corretamente
+   */
+  const getTotaisHoje = useMemo(() => {
     const total = lembretes.length;
-    const tomados = lembretes.filter(l => getLembreteStatus(l.id) === "tomado").length;
-    const pendentes = lembretes.filter(l => getLembreteStatus(l.id) === "pendente").length;
-    return { total, tomados, pendentes };
-  };
+    let tomados = 0;
+    let pendentes = 0;
+    let ativos = 0;
+    let esquecidos = 0;
+
+    lembretes.forEach(l => {
+      const result = getCalculatedDoseStatus(l.id, l.horario);
+      switch (result.status) {
+        case "tomado": tomados++; break;
+        case "pendente": pendentes++; break;
+        case "ativo": ativos++; break;
+        case "esquecido": esquecidos++; break;
+      }
+    });
+
+    return { total, tomados, pendentes, ativos, esquecidos };
+  }, [lembretes, getCalculatedDoseStatus]);
 
   if (loading) {
     return (
@@ -351,7 +417,7 @@ const Dashboard = () => {
     );
   }
 
-  const { total, tomados, pendentes } = getTotaisHoje();
+  const { total, tomados, pendentes, ativos, esquecidos } = getTotaisHoje;
 
   return (
     <div className="min-h-screen bg-background p-4 pb-24">
@@ -468,9 +534,14 @@ const Dashboard = () => {
           </div>
         )}
 
+        {/* ✅ Resumo do dia com estados corretos */}
         <div className="bg-card border rounded-lg p-4">
           <p className="text-base text-muted-foreground">
-            📅 Hoje: <strong>{total}</strong> lembretes totais • ✅ <strong>{tomados}</strong> tomados • ⏰ <strong>{pendentes}</strong> pendentes
+            📅 Hoje: <strong>{total}</strong> lembretes • 
+            ✅ <strong>{tomados}</strong> tomados • 
+            🔔 <strong>{ativos}</strong> ativos • 
+            ⏰ <strong>{pendentes}</strong> pendentes
+            {esquecidos > 0 && <> • ❌ <strong>{esquecidos}</strong> esquecidos</>}
           </p>
         </div>
 
@@ -488,7 +559,10 @@ const Dashboard = () => {
               </p>
             ) : (
               lembretes.map((lembrete) => {
-                const status = getLembreteStatus(lembrete.id);
+                // ✅ Usar função central para calcular status
+                const doseResult = getCalculatedDoseStatus(lembrete.id, lembrete.horario);
+                const { status, canMarkTaken, canMarkForgotten, minutesUntilActive } = doseResult;
+                
                 return (
                   <div
                     key={lembrete.id}
@@ -504,24 +578,30 @@ const Dashboard = () => {
                           {lembrete.horario} • {lembrete.periodo}
                         </p>
                       </div>
-                      {getStatusBadge(status)}
+                      {getStatusBadge(status, minutesUntilActive)}
                     </div>
-                    {status === "pendente" && (
+                    
+                    {/* ✅ BOTÕES: Só aparecem quando status é ATIVO */}
+                    {status === "ativo" && (
                       <div className="flex gap-2 ml-4">
-                        <Button
-                          size="sm"
-                          onClick={() => marcarDose(lembrete.id, "tomado")}
-                          className="bg-green-600 hover:bg-green-700"
-                        >
-                          Tomei
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => marcarDose(lembrete.id, "esquecido")}
-                        >
-                          Esqueci
-                        </Button>
+                        {canMarkTaken && (
+                          <Button
+                            size="sm"
+                            onClick={() => marcarDose(lembrete.id, "tomado")}
+                            className="bg-green-600 hover:bg-green-700"
+                          >
+                            Tomei
+                          </Button>
+                        )}
+                        {canMarkForgotten && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => marcarDose(lembrete.id, "esquecido")}
+                          >
+                            Esqueci
+                          </Button>
+                        )}
                       </div>
                     )}
                   </div>

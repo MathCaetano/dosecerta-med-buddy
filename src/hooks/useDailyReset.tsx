@@ -1,6 +1,7 @@
 import { useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { notificationScheduler } from "@/utils/notificationScheduler";
+import { shouldAutoMarkForgotten, DEFAULT_TOLERANCE_MINUTES } from "@/utils/doseStatus";
 
 const STORAGE_KEY = "dosecerta_last_daily_reset";
 
@@ -261,44 +262,65 @@ export const useDailyReset = (
   }, [userId, getCurrentDate]);
 
   /**
-   * ✅ VALIDAÇÃO DE TEMPO: Verifica se um lembrete pode ser marcado como "esquecido"
-   * Só permite marcar como esquecido se o horário + tolerância já passou
+   * ✅ Marcar doses expiradas como esquecidas automaticamente
+   * Só marca se a tolerância já passou E o status ainda é pendente
    */
-  const validateTimeForStatus = useCallback((
-    lembreteHorario: string,
-    novoStatus: string,
-    toleranciaMinutos: number = 30
-  ): { valido: boolean; motivo?: string } => {
-    const now = new Date();
-    const [hours, minutes] = lembreteHorario.split(":").map(Number);
-    
-    const horarioLembrete = new Date();
-    horarioLembrete.setHours(hours, minutes, 0, 0);
-    
-    const horarioComTolerancia = new Date(horarioLembrete.getTime() + toleranciaMinutos * 60 * 1000);
+  const autoMarkExpiredDoses = useCallback(async (): Promise<number> => {
+    if (!userId) return 0;
 
-    // Para marcar como "esquecido", o horário + tolerância deve ter passado
-    if (novoStatus === "esquecido" && now < horarioComTolerancia) {
-      return {
-        valido: false,
-        motivo: `Ainda não passou o horário com tolerância (${horarioComTolerancia.toTimeString().split(" ")[0]})`
-      };
-    }
+    try {
+      const today = getCurrentDate();
+      
+      // Buscar doses pendentes de hoje com horário do lembrete
+      const { data: pendingDoses, error } = await supabase
+        .from("historico_doses")
+        .select(`
+          id,
+          lembrete_id,
+          status,
+          lembretes!inner(horario)
+        `)
+        .eq("data", today)
+        .eq("status", "pendente");
 
-    // Para marcar como "tomado", deve estar dentro da janela válida ou já ter passado
-    if (novoStatus === "tomado") {
-      // Permite marcar como tomado a qualquer momento após o horário - tolerância
-      const horarioMenosTolerancia = new Date(horarioLembrete.getTime() - toleranciaMinutos * 60 * 1000);
-      if (now < horarioMenosTolerancia) {
-        return {
-          valido: false,
-          motivo: `Ainda muito cedo para marcar (aguarde até ${horarioMenosTolerancia.toTimeString().split(" ")[0]})`
-        };
+      if (error || !pendingDoses) return 0;
+
+      let markedCount = 0;
+
+      for (const dose of pendingDoses) {
+        const horario = (dose as any).lembretes?.horario;
+        if (!horario) continue;
+
+        // Usar função centralizada para verificar se deve marcar
+        if (shouldAutoMarkForgotten(horario, "pendente", DEFAULT_TOLERANCE_MINUTES)) {
+          const { error: updateError } = await supabase
+            .from("historico_doses")
+            .update({ status: "esquecido" })
+            .eq("id", dose.id);
+
+          if (!updateError) {
+            markedCount++;
+            logAudit({
+              lembreteId: dose.lembrete_id,
+              action: "AUTO_MARK_FORGOTTEN",
+              stateBefore: "pendente",
+              stateAfter: "esquecido",
+              reason: `Tolerância de ${DEFAULT_TOLERANCE_MINUTES}min expirada`,
+            });
+          }
+        }
       }
-    }
 
-    return { valido: true };
-  }, []);
+      if (markedCount > 0) {
+        console.log(`[DailyReset] ${markedCount} doses marcadas como esquecidas automaticamente`);
+      }
+
+      return markedCount;
+    } catch (error) {
+      console.error("[DailyReset] Erro ao marcar doses expiradas:", error);
+      return 0;
+    }
+  }, [userId, getCurrentDate]);
 
   /**
    * Função central de reset diário (idempotente)
@@ -367,6 +389,15 @@ export const useDailyReset = (
         });
       }
 
+      // 3. Marcar doses expiradas como esquecidas
+      const expiredCount = await autoMarkExpiredDoses();
+      if (expiredCount > 0) {
+        logAudit({
+          action: "AUTO_EXPIRED_DOSES",
+          reason: `${expiredCount} doses marcadas como esquecidas`,
+        });
+      }
+
       // 3. Marcar reset como concluído
       setLastResetDate(today);
       
@@ -400,6 +431,7 @@ export const useDailyReset = (
     setLastResetDate,
     initializeDailyDoseStatus,
     rescheduleNotifications,
+    autoMarkExpiredDoses,
     onResetComplete,
   ]);
 
@@ -456,7 +488,7 @@ export const useDailyReset = (
     getCurrentDate,
     getCurrentTime,
     getLastResetDate,
-    validateTimeForStatus,
+    autoMarkExpiredDoses,
     getAuditLogs,
   };
 };

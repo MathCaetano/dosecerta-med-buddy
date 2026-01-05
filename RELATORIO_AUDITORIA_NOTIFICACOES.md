@@ -1,10 +1,38 @@
 # 📋 RELATÓRIO FINAL DA AUDITORIA DE NOTIFICAÇÕES - DOSE CERTA
 
-**Data:** 19 de Novembro de 2025  
+**Data Original:** 19 de Novembro de 2025  
+**Última Atualização:** 05 de Janeiro de 2026  
 **Sistema:** Aplicativo Dose Certa (Gerenciador de Medicamentos)  
 **Objetivo:** Auditar e corrigir sistema de notificações completo
 
 ---
+
+## 🆕 ATUALIZAÇÃO: QA AUDIT COMPLETO (05/01/2026)
+
+### Correções Críticas Implementadas
+
+#### 1️⃣ CONTROLE DE TEMPO CENTRALIZADO ✅
+- **Criado:** `src/utils/doseStatus.ts` com função central `getDoseStatus()`
+- Estados implementados: `PENDENTE`, `ATIVO`, `TOMADO`, `ESQUECIDO`
+- Tolerância padrão: **60 minutos** (configurável)
+
+#### 2️⃣ BOTÕES CONDICIONAIS CORRIGIDOS ✅
+- Botões "Tomei" e "Esqueci" **SÓ aparecem quando status = ATIVO**
+- Validação centralizada via `canPerformAction()`
+- Impossível marcar como esquecido antes do horário + tolerância
+
+#### 3️⃣ ESTADOS CALCULADOS EM TEMPO REAL ✅
+- UI atualiza automaticamente a cada segundo
+- Badge mostra tempo restante: "⏰ Em X min"
+- Status muda automaticamente para ATIVO no horário correto
+
+#### 4️⃣ AUTO-MARK EXPIRADAS ✅
+- `autoMarkExpiredDoses()` marca doses expiradas como esquecidas
+- Executa no reset diário e periodicamente
+- Audit trail completo para debugging
+
+---
+
 
 ## 🔍 RESUMO EXECUTIVO
 
