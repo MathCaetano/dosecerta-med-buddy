@@ -7,10 +7,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, Plus, X, AlertCircle } from "lucide-react";
+import { ArrowLeft, Plus, X, AlertCircle, Clock, Sun, Sunset, Moon } from "lucide-react";
 import { toast } from "sonner";
 import { useNotifications } from "@/hooks/useNotifications";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { TimePicker, detectPeriodFromTime, getPeriodLabel } from "@/components/ui/time-picker";
 
 interface Horario {
   horario: string;
@@ -28,7 +29,7 @@ const AddMedication = () => {
     observacoes: "",
   });
   const [horarios, setHorarios] = useState<Horario[]>([
-    { horario: "", periodo: "manha", repeticao: "diariamente" }
+    { horario: "08:00", periodo: "manha", repeticao: "diariamente" }
   ]);
   const [horariosConflitantes, setHorariosConflitantes] = useState<string[]>([]);
 
@@ -169,7 +170,7 @@ const AddMedication = () => {
   };
 
   const addHorario = () => {
-    setHorarios([...horarios, { horario: "", periodo: "manha", repeticao: "diariamente" }]);
+    setHorarios([...horarios, { horario: "08:00", periodo: "manha", repeticao: "diariamente" }]);
   };
 
   const removeHorario = (index: number) => {
@@ -180,7 +181,15 @@ const AddMedication = () => {
 
   const updateHorario = (index: number, field: keyof Horario, value: string) => {
     const novosHorarios = [...horarios];
-    novosHorarios[index] = { ...novosHorarios[index], [field]: value };
+    
+    if (field === "horario") {
+      // Auto-detect period when time changes
+      const periodo = detectPeriodFromTime(value);
+      novosHorarios[index] = { ...novosHorarios[index], horario: value, periodo };
+    } else {
+      novosHorarios[index] = { ...novosHorarios[index], [field]: value };
+    }
+    
     setHorarios(novosHorarios);
 
     // Verificar conflitos de horários próximos
@@ -198,6 +207,19 @@ const AddMedication = () => {
         }
       });
       setHorariosConflitantes(conflitos);
+    }
+  };
+
+  const getPeriodIcon = (period: string) => {
+    switch (period) {
+      case "manha":
+        return <Sun className="h-4 w-4 text-amber-500" />;
+      case "tarde":
+        return <Sunset className="h-4 w-4 text-orange-500" />;
+      case "noite":
+        return <Moon className="h-4 w-4 text-indigo-500" />;
+      default:
+        return <Clock className="h-4 w-4" />;
     }
   };
 
@@ -308,61 +330,41 @@ const AddMedication = () => {
                         )}
                       </div>
 
-                      <div className="space-y-2">
-                        <Label htmlFor={`horario-${index}`} className="text-base">
-                          Horário *
-                        </Label>
-                        <Input
-                          id={`horario-${index}`}
-                          type="time"
+                      <div className="flex flex-col items-center space-y-4">
+                        <Label className="text-base">Definir horário</Label>
+                        <TimePicker
                           value={horario.horario}
-                          onChange={(e) => updateHorario(index, "horario", e.target.value)}
-                          className="text-base h-12"
+                          onChange={(time) => updateHorario(index, "horario", time)}
                           disabled={isLoading}
                         />
+                        
+                        {/* Period indicator - auto-detected, read-only */}
+                        <div className="flex items-center gap-2 px-4 py-2 bg-muted rounded-full">
+                          {getPeriodIcon(horario.periodo)}
+                          <span className="text-sm font-medium">
+                            Período: {getPeriodLabel(horario.periodo)}
+                          </span>
+                        </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor={`periodo-${index}`} className="text-base">
-                            Período
-                          </Label>
-                          <Select
-                            value={horario.periodo}
-                            onValueChange={(value) => updateHorario(index, "periodo", value)}
-                            disabled={isLoading}
-                          >
-                            <SelectTrigger className="text-base h-12">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="manha">Manhã</SelectItem>
-                              <SelectItem value="tarde">Tarde</SelectItem>
-                              <SelectItem value="noite">Noite</SelectItem>
-                              <SelectItem value="madrugada">Madrugada</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor={`repeticao-${index}`} className="text-base">
-                            Frequência
-                          </Label>
-                          <Select
-                            value={horario.repeticao}
-                            onValueChange={(value) => updateHorario(index, "repeticao", value)}
-                            disabled={isLoading}
-                          >
-                            <SelectTrigger className="text-base h-12">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="diariamente">Diariamente</SelectItem>
-                              <SelectItem value="dias_alternados">Dias alternados</SelectItem>
-                              <SelectItem value="semanalmente">Semanalmente</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
+                      <div className="space-y-2 w-full">
+                        <Label htmlFor={`repeticao-${index}`} className="text-base">
+                          Frequência
+                        </Label>
+                        <Select
+                          value={horario.repeticao}
+                          onValueChange={(value) => updateHorario(index, "repeticao", value)}
+                          disabled={isLoading}
+                        >
+                          <SelectTrigger className="text-base h-12">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="diariamente">Diariamente</SelectItem>
+                            <SelectItem value="dias_alternados">Dias alternados</SelectItem>
+                            <SelectItem value="semanalmente">Semanalmente</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
                   ))}
