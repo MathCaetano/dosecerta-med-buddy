@@ -1,7 +1,7 @@
 import { useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { notificationScheduler } from "@/utils/notificationScheduler";
-import { shouldAutoMarkForgotten, DEFAULT_TOLERANCE_MINUTES } from "@/utils/doseStatus";
+import { shouldAutoMarkForgotten, WINDOW_END_OFFSET } from "@/utils/doseStatus";
 
 const STORAGE_KEY = "dosecerta_last_daily_reset";
 
@@ -292,7 +292,7 @@ export const useDailyReset = (
         if (!horario) continue;
 
         // Usar função centralizada para verificar se deve marcar
-        if (shouldAutoMarkForgotten(horario, "pendente", DEFAULT_TOLERANCE_MINUTES)) {
+        if (shouldAutoMarkForgotten(horario, "pendente")) {
           const { error: updateError } = await supabase
             .from("historico_doses")
             .update({ status: "esquecido" })
@@ -305,7 +305,7 @@ export const useDailyReset = (
               action: "AUTO_MARK_FORGOTTEN",
               stateBefore: "pendente",
               stateAfter: "esquecido",
-              reason: `Tolerância de ${DEFAULT_TOLERANCE_MINUTES}min expirada`,
+              reason: `Tolerância de ${WINDOW_END_OFFSET}min expirada`,
             });
           }
         }
