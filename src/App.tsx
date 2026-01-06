@@ -30,7 +30,7 @@ const App = () => (
             <Route path="/medicamentos" element={<Layout><Medicamentos /></Layout>} />
             <Route path="/add-medication" element={<Layout><AddMedication /></Layout>} />
             <Route path="/history" element={<Layout><History /></Layout>} />
-            <Route path="/analytics" element={<Layout><Analytics /></Layout>} />
+            <Route path="/analytics" element={<Navigate to="/dashboard" replace />} />
             <Route path="/settings" element={<Layout><Settings /></Layout>} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />

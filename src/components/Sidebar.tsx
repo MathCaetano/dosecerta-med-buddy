@@ -8,7 +8,7 @@ const menuItems = [
   { title: "Lembretes de Hoje", url: "/dashboard", icon: Home },
   { title: "Meus Medicamentos", url: "/medicamentos", icon: Pill },
   { title: "Histórico de Doses", url: "/history", icon: History },
-  { title: "Analytics", url: "/analytics", icon: BarChart3 },
+  // { title: "Analytics", url: "/analytics", icon: BarChart3 }, // Temporariamente oculto
   { title: "Configurações", url: "/settings", icon: Settings },
 ];
 
