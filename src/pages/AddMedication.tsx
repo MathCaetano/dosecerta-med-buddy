@@ -296,26 +296,28 @@ const AddMedication = () => {
                 />
               </div>
 
-              <div className="border-t pt-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold">Configurar Horários</h3>
+              <div className="border-t pt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-base font-semibold">Horários</h3>
                   <Button
                     type="button"
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
                     onClick={addHorario}
                     disabled={isLoading}
+                    className="h-8 text-sm"
                   >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Adicionar horário
+                    <Plus className="h-4 w-4 mr-1" />
+                    Adicionar
                   </Button>
                 </div>
 
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {horarios.map((horario, index) => (
-                    <div key={index} className="p-4 border rounded-lg space-y-4 bg-muted/20">
-                      <div className="flex items-center justify-between">
-                        <Label className="text-base font-medium">Horário {index + 1}</Label>
+                    <div key={index} className="p-3 border rounded-lg bg-muted/20">
+                      {/* Header with remove button */}
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm text-muted-foreground">Horário {index + 1}</span>
                         {horarios.length > 1 && (
                           <Button
                             type="button"
@@ -323,40 +325,37 @@ const AddMedication = () => {
                             size="icon"
                             onClick={() => removeHorario(index)}
                             disabled={isLoading}
-                            className="h-8 w-8"
+                            className="h-6 w-6"
                           >
-                            <X className="h-4 w-4" />
+                            <X className="h-3 w-3" />
                           </Button>
                         )}
                       </div>
 
-                      <div className="flex flex-col items-center space-y-4">
-                        <Label className="text-base">Definir horário</Label>
+                      {/* Time picker + Period chip inline */}
+                      <div className="flex items-center justify-center gap-3 mb-3">
                         <TimePicker
                           value={horario.horario}
                           onChange={(time) => updateHorario(index, "horario", time)}
                           disabled={isLoading}
                         />
                         
-                        {/* Period indicator - auto-detected, read-only */}
-                        <div className="flex items-center gap-2 px-4 py-2 bg-muted rounded-full">
+                        {/* Compact period chip */}
+                        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-muted rounded-full text-xs font-medium whitespace-nowrap">
                           {getPeriodIcon(horario.periodo)}
-                          <span className="text-sm font-medium">
-                            Período: {getPeriodLabel(horario.periodo)}
-                          </span>
+                          <span>{getPeriodLabel(horario.periodo)}</span>
                         </div>
                       </div>
 
-                      <div className="space-y-2 w-full">
-                        <Label htmlFor={`repeticao-${index}`} className="text-base">
-                          Frequência
-                        </Label>
+                      {/* Frequency as inline row */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-muted-foreground whitespace-nowrap">🔁 Frequência:</span>
                         <Select
                           value={horario.repeticao}
                           onValueChange={(value) => updateHorario(index, "repeticao", value)}
                           disabled={isLoading}
                         >
-                          <SelectTrigger className="text-base h-12">
+                          <SelectTrigger className="h-9 text-sm flex-1">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>

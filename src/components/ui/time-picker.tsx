@@ -17,17 +17,16 @@ export function TimePicker({ value, onChange, disabled, className }: TimePickerP
   const minuteRef = React.useRef<HTMLDivElement>(null);
 
   const scrollToSelected = React.useCallback(() => {
+    const itemHeight = 36;
     if (hourRef.current) {
       const hourIndex = hours.indexOf(hour);
       if (hourIndex >= 0) {
-        const itemHeight = 48;
         hourRef.current.scrollTop = hourIndex * itemHeight;
       }
     }
     if (minuteRef.current) {
       const minuteIndex = minutes.indexOf(minute);
       if (minuteIndex >= 0) {
-        const itemHeight = 48;
         minuteRef.current.scrollTop = minuteIndex * itemHeight;
       }
     }
@@ -50,68 +49,68 @@ export function TimePicker({ value, onChange, disabled, className }: TimePickerP
   };
 
   return (
-    <div className={cn("flex items-center justify-center gap-2 p-4", className)}>
+    <div className={cn("flex items-center justify-center gap-1", className)}>
       {/* Hour Wheel */}
       <div className="relative">
-        <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-12 bg-primary/10 rounded-lg pointer-events-none z-0" />
+        <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-9 bg-primary/10 rounded-md pointer-events-none z-0" />
         <div
           ref={hourRef}
           className={cn(
-            "relative z-10 h-[144px] overflow-y-auto scroll-smooth snap-y snap-mandatory hide-scrollbar",
+            "relative z-10 h-[108px] overflow-y-auto scroll-smooth snap-y snap-mandatory hide-scrollbar",
             disabled && "opacity-50 pointer-events-none"
           )}
           style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
         >
-          <div className="h-12" /> {/* Spacer top */}
+          <div className="h-9" />
           {hours.map((h) => (
             <button
               key={h}
               type="button"
               onClick={() => handleHourSelect(h)}
               className={cn(
-                "w-16 h-12 flex items-center justify-center text-2xl font-semibold snap-center transition-all",
+                "w-14 h-9 flex items-center justify-center text-xl font-semibold snap-center transition-all",
                 h === hour
-                  ? "text-primary scale-110"
+                  ? "text-primary scale-105"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
               {h}
             </button>
           ))}
-          <div className="h-12" /> {/* Spacer bottom */}
+          <div className="h-9" />
         </div>
       </div>
 
-      <span className="text-3xl font-bold text-foreground">:</span>
+      <span className="text-2xl font-bold text-foreground">:</span>
 
       {/* Minute Wheel */}
       <div className="relative">
-        <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-12 bg-primary/10 rounded-lg pointer-events-none z-0" />
+        <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-9 bg-primary/10 rounded-md pointer-events-none z-0" />
         <div
           ref={minuteRef}
           className={cn(
-            "relative z-10 h-[144px] overflow-y-auto scroll-smooth snap-y snap-mandatory hide-scrollbar",
+            "relative z-10 h-[108px] overflow-y-auto scroll-smooth snap-y snap-mandatory hide-scrollbar",
             disabled && "opacity-50 pointer-events-none"
           )}
           style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
         >
-          <div className="h-12" /> {/* Spacer top */}
+          <div className="h-9" />
           {minutes.map((m) => (
             <button
               key={m}
               type="button"
               onClick={() => handleMinuteSelect(m)}
               className={cn(
-                "w-16 h-12 flex items-center justify-center text-2xl font-semibold snap-center transition-all",
+                "w-14 h-9 flex items-center justify-center text-xl font-semibold snap-center transition-all",
                 m === minute
-                  ? "text-primary scale-110"
+                  ? "text-primary scale-105"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
               {m}
             </button>
           ))}
-          <div className="h-12" /> {/* Spacer bottom */}
+          <div className="h-9" />
         </div>
       </div>
     </div>
